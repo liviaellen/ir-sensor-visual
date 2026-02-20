@@ -75,7 +75,8 @@ const StaticScene = memo(() => (
 ));
 
 const App = () => {
-  const [rotateY, setRotateY]           = useState(0);
+  const [showSetup, setShowSetup]       = useState(true);
+  const rotateYLabelRef                 = useRef();
   const flowerScaleRef                  = useRef(1.0);
   const flowerScaleLabelRef             = useRef();
   const flowerCountRef                  = useRef(1500);
@@ -155,14 +156,57 @@ const App = () => {
 
   return (
     <>
+      {/* top right — name + settings toggle */}
+      <div style={{
+        position: "fixed", top: 20, right: 20, zIndex: 200,
+        display: "flex", alignItems: "center", gap: 10,
+        fontFamily: "-apple-system, sans-serif",
+      }}>
+        <div style={{ textAlign: "right", textShadow: "0 1px 8px rgba(0,0,0,0.5)" }}>
+          <div style={{ color: "white", fontSize: "0.85rem", fontWeight: 600, letterSpacing: "0.04em" }}>
+            Rotation by Livia Ellen
+          </div>
+          <div style={{ color: "white", fontSize: "0.85rem", fontWeight: 600, letterSpacing: "0.04em", marginTop: 2, fontStyle: "italic" }}>
+            @ellen_in_sf
+          </div>
+        </div>
+        <button onClick={() => setShowSetup(s => !s)} style={{
+          padding: "7px 12px", fontSize: "0.8rem", border: "none",
+          borderRadius: "20px", cursor: "pointer",
+          background: showSetup ? "rgba(255,255,255,0.18)" : "rgba(255,255,255,0.1)",
+          color: "white", backdropFilter: "blur(10px)",
+          border: "1px solid rgba(255,255,255,0.15)",
+        }}>
+          ⚙
+        </button>
+      </div>
+
       {/* top-left controls */}
       <div style={{
+        display: showSetup ? "block" : "none",
         position: "fixed", top: 20, left: 20, zIndex: 100,
         color: "white", fontFamily: "-apple-system, sans-serif",
         padding: "15px", background: "rgba(0,0,0,0.4)",
         borderRadius: "15px", backdropFilter: "blur(10px)",
         border: "1px solid rgba(255,255,255,0.1)", width: "240px",
       }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+          <span style={{ fontSize: "0.75rem", opacity: 0.5, letterSpacing: "0.08em" }}>SETUP</span>
+          <button onClick={() => setShowSetup(false)} style={{
+            background: "none", border: "none", color: "white",
+            cursor: "pointer", opacity: 0.5, fontSize: "1rem", padding: 0,
+          }}>✕</button>
+        </div>
+
+        <button onClick={connectBLE} style={{
+          width: "100%", marginBottom: 14, padding: "8px 0",
+          fontSize: "0.82rem", border: "none", borderRadius: "10px",
+          cursor: "pointer", fontWeight: 600,
+          background: bleConnected ? "rgba(0,200,100,0.35)" : "rgba(0,198,255,0.2)",
+          color: "white", border: "1px solid rgba(255,255,255,0.1)",
+        }}>
+          {bleConnected ? "● BLE connected" : "Connect BLE"}
+        </button>
         <div style={{ marginBottom: 10 }}>
           <label style={{ display: "block", fontSize: "0.8rem", marginBottom: 5 }}>
             Flowers: <span ref={flowerCountLabelRef}>1500</span>
@@ -194,7 +238,7 @@ const App = () => {
       </div>
 
       {/* IR distance — bottom right */}
-      {bleConnected && (
+      {bleConnected && showSetup && (
         <div style={{
           position: "fixed", bottom: 30, right: 20, zIndex: 100,
           color: "white", fontFamily: "-apple-system, sans-serif",
@@ -211,44 +255,35 @@ const App = () => {
         </div>
       )}
 
-      {/* BLE connect button — top right */}
-      <button onClick={connectBLE} style={{
-        position: "fixed", top: 20, right: 20, zIndex: 100,
-        padding: "10px 20px", fontSize: "0.85rem", border: "none",
-        borderRadius: "20px", cursor: "pointer", fontWeight: 600,
-        background: bleConnected ? "rgba(0,200,100,0.35)" : "rgba(0,198,255,0.25)",
-        color: "white", backdropFilter: "blur(10px)",
-        border: "1px solid rgba(255,255,255,0.15)",
-      }}>
-        {bleConnected ? "● BLE connected" : "Connect BLE"}
-      </button>
 
       {/* bottom rotation slider */}
-      <div style={{
-        position: "fixed", bottom: 30, left: "50%", transform: "translateX(-50%)",
-        zIndex: 100, color: "white", fontFamily: "-apple-system, sans-serif",
-        padding: "14px 24px", background: "rgba(0,0,0,0.4)",
-        borderRadius: "40px", backdropFilter: "blur(10px)",
-        border: "1px solid rgba(255,255,255,0.1)",
-        display: "flex", alignItems: "center", gap: "14px", width: "340px",
-      }}>
-        <span style={{ fontSize: "1.1rem" }}>🌍</span>
-        <input type="range" min="0" max="360" step="1"
-          value={rotateY}
-          onChange={(e) => {
-            const deg = parseFloat(e.target.value);
-            setRotateY(deg);
-            if (controlsRef.current) {
-              controlsRef.current.setAzimuthalAngle(-deg * (Math.PI / 180));
-              controlsRef.current.update();
-            }
-          }}
-          style={{ flex: 1, cursor: "grab", accentColor: "#00c6ff" }}
-        />
-        <span style={{ fontSize: "0.8rem", opacity: 0.6, width: "38px", textAlign: "right" }}>
-          {rotateY}°
-        </span>
-      </div>
+      {showSetup && (
+        <div style={{
+          position: "fixed", bottom: 30, left: "50%", transform: "translateX(-50%)",
+          zIndex: 100, color: "white", fontFamily: "-apple-system, sans-serif",
+          padding: "14px 24px", background: "rgba(0,0,0,0.4)",
+          borderRadius: "40px", backdropFilter: "blur(10px)",
+          border: "1px solid rgba(255,255,255,0.1)",
+          display: "flex", alignItems: "center", gap: "14px", width: "340px",
+        }}>
+          <span style={{ fontSize: "1.1rem" }}>🌍</span>
+          <input type="range" min="0" max="360" step="1"
+            defaultValue={0}
+            onChange={(e) => {
+              const deg = parseFloat(e.target.value);
+              if (rotateYLabelRef.current) rotateYLabelRef.current.textContent = `${Math.round(deg)}°`;
+              if (controlsRef.current) {
+                controlsRef.current.setAzimuthalAngle(-deg * (Math.PI / 180));
+                controlsRef.current.update();
+              }
+            }}
+            style={{ flex: 1, cursor: "grab", accentColor: "#00c6ff" }}
+          />
+          <span ref={rotateYLabelRef} style={{ fontSize: "0.8rem", opacity: 0.6, width: "38px", textAlign: "right" }}>
+            0°
+          </span>
+        </div>
+      )}
 
       <Canvas dpr={1.5} camera={{ position: [2, -2, 2] }}>
         <StaticScene />

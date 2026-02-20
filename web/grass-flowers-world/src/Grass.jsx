@@ -14,7 +14,7 @@ extend({ WindLayer });
 const MAX_FLOWERS = 10000;
 
 export function Grass({ children, strands = 60000, flowerCountRef, flowerScaleRef, ...props }) {
-  const meshRef = useRef(null);
+  const meshRef   = useRef(null);
   const windLayer = useRef(null);
   const flowerRef = useRef();
 
