@@ -1,0 +1,516 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Growing Flowers</title>
+  <style>
+    * { margin: 0; padding: 0; }
+    body { overflow: hidden; background: #000; }
+    canvas { display: block; }
+
+    #ui {
+      position: fixed;
+      top: 20px;
+      left: 20px;
+      z-index: 100;
+      color: white;
+      font-family: -apple-system, sans-serif;
+    }
+
+    #connectBtn {
+      padding: 12px 24px;
+      font-size: 1rem;
+      border: 2px solid rgba(255,255,255,0.2);
+      border-radius: 25px;
+      background: rgba(0,0,0,0.4);
+      color: white;
+      cursor: pointer;
+      backdrop-filter: blur(10px);
+    }
+
+    #info {
+      margin-top: 10px;
+      font-size: 0.85rem;
+      opacity: 0.6;
+    }
+
+    #title {
+      position: fixed;
+      bottom: 30px;
+      left: 50%;
+      transform: translateX(-50%);
+      color: white;
+      font-size: 0.9rem;
+      letter-spacing: 0.4em;
+      opacity: 0.2;
+      text-transform: uppercase;
+    }
+  </style>
+</head>
+<body>
+  <div id="ui">
+    <button id="connectBtn" onclick="connect()">Connect Sensor</button>
+    <div id="info">↑↓ keys to test</div>
+  </div>
+
+  <div id="title">Movement of Love</div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <script>
+    // BLE
+    const UART_SERVICE_UUID = '6e400001-b5a3-f393-e0a9-e50e24dcca9e';
+    const UART_RX_UUID = '6e400003-b5a3-f393-e0a9-e50e24dcca9e';
+
+    let targetDistance = 100;
+    let currentDistance = 100;
+
+    async function connect() {
+      try {
+        document.getElementById('info').textContent = 'Connecting...';
+        const device = await navigator.bluetooth.requestDevice({
+          filters: [{ namePrefix: 'Adafruit' }],
+          optionalServices: [UART_SERVICE_UUID]
+        });
+        const server = await device.gatt.connect();
+        const service = await server.getPrimaryService(UART_SERVICE_UUID);
+        const rx = await service.getCharacteristic(UART_RX_UUID);
+        await rx.startNotifications();
+
+        rx.addEventListener('characteristicvaluechanged', (e) => {
+          const data = new TextDecoder().decode(e.target.value);
+          if (data.startsWith('D:')) {
+            const value = parseFloat(data.substring(2));
+            if (!isNaN(value) && isFinite(value)) {
+              targetDistance = Math.max(20, Math.min(150, value));
+              document.getElementById('info').textContent = targetDistance.toFixed(0) + ' cm';
+            }
+          }
+        });
+
+        document.getElementById('connectBtn').textContent = 'Connected';
+      } catch (err) {
+        document.getElementById('info').textContent = err.message;
+      }
+    }
+
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'ArrowUp') targetDistance = Math.max(20, targetDistance - 5);
+      if (e.key === 'ArrowDown') targetDistance = Math.min(150, targetDistance + 5);
+      document.getElementById('info').textContent = targetDistance.toFixed(0) + ' cm';
+    });
+
+    // Three.js Setup
+    const scene = new THREE.Scene();
+    scene.fog = new THREE.FogExp2(0x0a0812, 0.03);
+
+    const camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 1000);
+    camera.position.set(0, 2, 12);
+    camera.lookAt(0, 3, 0);
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    document.body.appendChild(renderer.domElement);
+
+    // Lighting
+    const ambientLight = new THREE.AmbientLight(0x1a1a2e, 0.4);
+    scene.add(ambientLight);
+
+    const mainLight = new THREE.DirectionalLight(0xffeedd, 0.8);
+    mainLight.position.set(5, 10, 5);
+    mainLight.castShadow = true;
+    scene.add(mainLight);
+
+    const rimLight = new THREE.DirectionalLight(0xff88aa, 0.3);
+    rimLight.position.set(-5, 5, -5);
+    scene.add(rimLight);
+
+    const groundLight = new THREE.PointLight(0x88ffaa, 0.5, 20);
+    groundLight.position.set(0, 0.5, 0);
+    scene.add(groundLight);
+
+    // Ground
+    const groundGeo = new THREE.PlaneGeometry(50, 50);
+    const groundMat = new THREE.MeshStandardMaterial({
+      color: 0x1a2f1a,
+      roughness: 0.9
+    });
+    const ground = new THREE.Mesh(groundGeo, groundMat);
+    ground.rotation.x = -Math.PI / 2;
+    ground.receiveShadow = true;
+    scene.add(ground);
+
+    // Grass particles
+    const grassCount = 3000;
+    const grassGeo = new THREE.BufferGeometry();
+    const grassPos = new Float32Array(grassCount * 3);
+    const grassCol = new Float32Array(grassCount * 3);
+
+    for (let i = 0; i < grassCount; i++) {
+      const i3 = i * 3;
+      grassPos[i3] = (Math.random() - 0.5) * 30;
+      grassPos[i3 + 1] = Math.random() * 0.3;
+      grassPos[i3 + 2] = (Math.random() - 0.5) * 20 - 2;
+
+      grassCol[i3] = 0.1 + Math.random() * 0.1;
+      grassCol[i3 + 1] = 0.3 + Math.random() * 0.3;
+      grassCol[i3 + 2] = 0.1 + Math.random() * 0.1;
+    }
+
+    grassGeo.setAttribute('position', new THREE.BufferAttribute(grassPos, 3));
+    grassGeo.setAttribute('color', new THREE.BufferAttribute(grassCol, 3));
+
+    const grassMat = new THREE.PointsMaterial({
+      size: 0.08,
+      vertexColors: true,
+      transparent: true,
+      opacity: 0.8
+    });
+    scene.add(new THREE.Points(grassGeo, grassMat));
+
+    // Flower class
+    class Flower3D {
+      constructor(x, z, config) {
+        this.x = x;
+        this.z = z;
+        this.config = config;
+        this.group = new THREE.Group();
+        this.group.position.set(x, 0, z);
+        scene.add(this.group);
+
+        this.growth = 0;
+        this.bloomAmount = 0;
+        this.targetGrowth = 0;
+        this.targetBloom = 0;
+
+        this.maxHeight = config.height || 4;
+        this.petalCount = config.petals || 8;
+        this.petalColor = config.color || 0xff6699;
+        this.delay = config.delay || 0;
+
+        this.createStem();
+        this.createFlowerHead();
+        this.createLeaves();
+      }
+
+      createStem() {
+        // Main stem
+        const curve = new THREE.CatmullRomCurve3([
+          new THREE.Vector3(0, 0, 0),
+          new THREE.Vector3(0.1, 1, 0.05),
+          new THREE.Vector3(-0.05, 2, 0),
+          new THREE.Vector3(0.05, 3, -0.05),
+          new THREE.Vector3(0, 4, 0)
+        ]);
+
+        const stemGeo = new THREE.TubeGeometry(curve, 20, 0.08, 8, false);
+        const stemMat = new THREE.MeshStandardMaterial({
+          color: 0x2d5a27,
+          roughness: 0.8
+        });
+
+        this.stem = new THREE.Mesh(stemGeo, stemMat);
+        this.stem.castShadow = true;
+        this.group.add(this.stem);
+      }
+
+      createFlowerHead() {
+        this.flowerHead = new THREE.Group();
+        this.group.add(this.flowerHead);
+
+        // Center
+        const centerGeo = new THREE.SphereGeometry(0.25, 16, 16);
+        const centerMat = new THREE.MeshStandardMaterial({
+          color: 0xffdd44,
+          emissive: 0xffaa00,
+          emissiveIntensity: 0.3,
+          roughness: 0.5
+        });
+        this.center = new THREE.Mesh(centerGeo, centerMat);
+        this.flowerHead.add(this.center);
+
+        // Petals
+        this.petals = [];
+        for (let i = 0; i < this.petalCount; i++) {
+          const angle = (i / this.petalCount) * Math.PI * 2;
+          const petal = this.createPetal(angle);
+          this.petals.push(petal);
+          this.flowerHead.add(petal);
+        }
+
+        // Inner petals
+        this.innerPetals = [];
+        for (let i = 0; i < this.petalCount; i++) {
+          const angle = (i / this.petalCount) * Math.PI * 2 + Math.PI / this.petalCount;
+          const petal = this.createPetal(angle, 0.7, true);
+          this.innerPetals.push(petal);
+          this.flowerHead.add(petal);
+        }
+      }
+
+      createPetal(angle, scale = 1, inner = false) {
+        const petalShape = new THREE.Shape();
+        const w = 0.4 * scale;
+        const h = 1.0 * scale;
+
+        petalShape.moveTo(0, 0);
+        petalShape.bezierCurveTo(-w, h * 0.3, -w * 0.8, h * 0.7, 0, h);
+        petalShape.bezierCurveTo(w * 0.8, h * 0.7, w, h * 0.3, 0, 0);
+
+        const extrudeSettings = {
+          depth: 0.05,
+          bevelEnabled: true,
+          bevelThickness: 0.02,
+          bevelSize: 0.02,
+          bevelSegments: 3
+        };
+
+        const petalGeo = new THREE.ExtrudeGeometry(petalShape, extrudeSettings);
+
+        // Adjust color for inner petals
+        const color = inner ?
+          new THREE.Color(this.petalColor).lerp(new THREE.Color(0xffffff), 0.3) :
+          new THREE.Color(this.petalColor);
+
+        const petalMat = new THREE.MeshStandardMaterial({
+          color: color,
+          emissive: color,
+          emissiveIntensity: 0.1,
+          roughness: 0.4,
+          side: THREE.DoubleSide
+        });
+
+        const petal = new THREE.Mesh(petalGeo, petalMat);
+        petal.castShadow = true;
+
+        // Position at angle
+        const petalGroup = new THREE.Group();
+        petalGroup.add(petal);
+        petalGroup.rotation.z = angle;
+        petalGroup.userData = { baseAngle: angle, scale: scale, inner: inner };
+
+        return petalGroup;
+      }
+
+      createLeaves() {
+        this.leaves = [];
+
+        for (let i = 0; i < 3; i++) {
+          const leafShape = new THREE.Shape();
+          leafShape.moveTo(0, 0);
+          leafShape.bezierCurveTo(-0.2, 0.3, -0.15, 0.7, 0, 1);
+          leafShape.bezierCurveTo(0.15, 0.7, 0.2, 0.3, 0, 0);
+
+          const leafGeo = new THREE.ShapeGeometry(leafShape);
+          const leafMat = new THREE.MeshStandardMaterial({
+            color: 0x3d7a37,
+            side: THREE.DoubleSide,
+            roughness: 0.7
+          });
+
+          const leaf = new THREE.Mesh(leafGeo, leafMat);
+          leaf.scale.set(0.8, 1.2, 1);
+          leaf.castShadow = true;
+
+          const leafGroup = new THREE.Group();
+          leafGroup.add(leaf);
+          leafGroup.rotation.y = (i / 3) * Math.PI * 2 + Math.random() * 0.5;
+          leafGroup.userData = { heightRatio: 0.2 + i * 0.2 };
+
+          this.leaves.push(leafGroup);
+          this.group.add(leafGroup);
+        }
+      }
+
+      update(globalBloom, time) {
+        // Delayed growth
+        const adjustedBloom = Math.max(0, globalBloom - this.delay);
+        this.targetGrowth = Math.min(1, adjustedBloom * 1.5);
+        this.targetBloom = Math.max(0, adjustedBloom - 0.3) * 1.5;
+
+        this.growth += (this.targetGrowth - this.growth) * 0.03;
+        this.bloomAmount += (this.targetBloom - this.bloomAmount) * 0.04;
+
+        const growth = Math.max(0, Math.min(1, this.growth));
+        const bloom = Math.max(0, Math.min(1, this.bloomAmount));
+
+        // Stem growth (scale Y)
+        this.stem.scale.y = 0.1 + growth * 0.9;
+        this.stem.scale.x = 0.5 + growth * 0.5;
+        this.stem.scale.z = 0.5 + growth * 0.5;
+
+        // Stem sway
+        const sway = Math.sin(time * 1.5 + this.x) * 0.05 * growth;
+        this.group.rotation.z = sway;
+        this.group.rotation.x = Math.sin(time * 1.2 + this.z) * 0.03 * growth;
+
+        // Flower head position
+        const headHeight = this.maxHeight * growth;
+        this.flowerHead.position.y = headHeight;
+        this.flowerHead.scale.set(bloom, bloom, bloom);
+
+        // Petal animation
+        this.petals.forEach((petalGroup, i) => {
+          const openAngle = -Math.PI * 0.4 * bloom;
+          const wave = Math.sin(time * 2 + i * 0.5) * 0.05 * bloom;
+          petalGroup.rotation.x = openAngle + wave;
+
+          // Scale petals
+          const petalScale = 0.3 + bloom * 0.7;
+          petalGroup.scale.set(petalScale, petalScale, petalScale);
+        });
+
+        this.innerPetals.forEach((petalGroup, i) => {
+          const openAngle = -Math.PI * 0.3 * bloom;
+          const wave = Math.sin(time * 2.5 + i * 0.5 + 1) * 0.04 * bloom;
+          petalGroup.rotation.x = openAngle + wave;
+
+          const petalScale = 0.2 + bloom * 0.6;
+          petalGroup.scale.set(petalScale, petalScale, petalScale);
+        });
+
+        // Center pulse
+        const pulse = 1 + Math.sin(time * 4) * 0.1 * bloom;
+        this.center.scale.set(pulse, pulse, pulse);
+
+        // Leaves
+        this.leaves.forEach((leafGroup, i) => {
+          const leafHeight = this.maxHeight * growth * leafGroup.userData.heightRatio;
+          leafGroup.position.y = leafHeight;
+
+          const leafGrowth = Math.min(1, growth * 1.5 - i * 0.2);
+          leafGroup.scale.set(leafGrowth, leafGrowth, leafGrowth);
+
+          const leafAngle = Math.sin(time + i * 2) * 0.2 * growth;
+          leafGroup.rotation.z = leafAngle - 0.3;
+        });
+
+        // Emissive glow based on bloom
+        const emissiveIntensity = 0.1 + bloom * 0.4;
+        this.petals.forEach(p => {
+          p.children[0].material.emissiveIntensity = emissiveIntensity;
+        });
+        this.innerPetals.forEach(p => {
+          p.children[0].material.emissiveIntensity = emissiveIntensity * 1.2;
+        });
+        this.center.material.emissiveIntensity = 0.3 + bloom * 0.5;
+      }
+    }
+
+    // Create flowers
+    const flowers = [];
+    const flowerConfigs = [
+      { x: 0, z: 0, height: 5, petals: 8, color: 0xff6699, delay: 0 },
+      { x: -2.5, z: 1, height: 4, petals: 6, color: 0xff88aa, delay: 0.1 },
+      { x: 2.5, z: 0.5, height: 4.5, petals: 10, color: 0xee5588, delay: 0.1 },
+      { x: -1.5, z: -1.5, height: 3.5, petals: 8, color: 0xff99bb, delay: 0.2 },
+      { x: 1.5, z: -1, height: 3.8, petals: 6, color: 0xdd4477, delay: 0.15 },
+      { x: -3.5, z: -0.5, height: 3, petals: 8, color: 0xffaacc, delay: 0.25 },
+      { x: 3.5, z: -1.5, height: 3.2, petals: 6, color: 0xcc3366, delay: 0.3 },
+      { x: 0, z: -2.5, height: 3, petals: 10, color: 0xff77aa, delay: 0.2 },
+    ];
+
+    flowerConfigs.forEach(config => {
+      flowers.push(new Flower3D(config.x, config.z, config));
+    });
+
+    // Floating particles (pollen/magic)
+    const particleCount = 300;
+    const particleGeo = new THREE.BufferGeometry();
+    const particlePos = new Float32Array(particleCount * 3);
+    const particleVel = [];
+
+    for (let i = 0; i < particleCount; i++) {
+      const i3 = i * 3;
+      particlePos[i3] = (Math.random() - 0.5) * 15;
+      particlePos[i3 + 1] = Math.random() * 8;
+      particlePos[i3 + 2] = (Math.random() - 0.5) * 10;
+
+      particleVel.push({
+        x: (Math.random() - 0.5) * 0.01,
+        y: Math.random() * 0.02 + 0.01,
+        z: (Math.random() - 0.5) * 0.01
+      });
+    }
+
+    particleGeo.setAttribute('position', new THREE.BufferAttribute(particlePos, 3));
+
+    const particleMat = new THREE.PointsMaterial({
+      size: 0.08,
+      color: 0xffffaa,
+      transparent: true,
+      opacity: 0,
+      blending: THREE.AdditiveBlending
+    });
+
+    const particles = new THREE.Points(particleGeo, particleMat);
+    scene.add(particles);
+
+    // Animation
+    let time = 0;
+    let bloom = 0;
+
+    function animate() {
+      requestAnimationFrame(animate);
+      time += 0.016;
+
+      // Smooth distance and bloom
+      currentDistance += (targetDistance - currentDistance) * 0.05;
+      const targetBloom = 1 - Math.min(1, Math.max(0, (currentDistance - 20) / 80));
+      bloom += (targetBloom - bloom) * 0.02;
+
+      // Update flowers
+      flowers.forEach(flower => flower.update(bloom, time));
+
+      // Update particles
+      const positions = particleGeo.attributes.position.array;
+      particleMat.opacity = bloom * 0.6;
+
+      for (let i = 0; i < particleCount; i++) {
+        const i3 = i * 3;
+        const vel = particleVel[i];
+
+        positions[i3] += vel.x + Math.sin(time + i) * 0.005;
+        positions[i3 + 1] += vel.y * bloom;
+        positions[i3 + 2] += vel.z;
+
+        // Reset if too high or out of bounds
+        if (positions[i3 + 1] > 10 || Math.abs(positions[i3]) > 10) {
+          positions[i3] = (Math.random() - 0.5) * 10;
+          positions[i3 + 1] = Math.random() * 2;
+          positions[i3 + 2] = (Math.random() - 0.5) * 8;
+        }
+      }
+      particleGeo.attributes.position.needsUpdate = true;
+
+      // Camera subtle movement
+      camera.position.x = Math.sin(time * 0.15) * 1;
+      camera.position.y = 2 + Math.sin(time * 0.1) * 0.3 + bloom * 1;
+      camera.lookAt(0, 2 + bloom * 2, 0);
+
+      // Lighting changes
+      mainLight.intensity = 0.5 + bloom * 0.5;
+      groundLight.intensity = bloom * 1;
+
+      // Background color
+      const r = 0.04 + bloom * 0.02;
+      const g = 0.03 + bloom * 0.02;
+      const b = 0.07 + bloom * 0.03;
+      renderer.setClearColor(new THREE.Color(r, g, b));
+
+      renderer.render(scene, camera);
+    }
+
+    animate();
+
+    window.addEventListener('resize', () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+  </script>
+</body>
+</html>

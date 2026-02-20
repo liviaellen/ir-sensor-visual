@@ -1,0 +1,421 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Movement of Love</title>
+  <style>
+    * { margin: 0; padding: 0; }
+    body {
+      overflow: hidden;
+      background: #000;
+      font-family: -apple-system, sans-serif;
+    }
+    canvas { display: block; }
+
+    #ui {
+      position: fixed;
+      top: 20px;
+      left: 20px;
+      z-index: 100;
+      color: white;
+    }
+
+    #connectBtn {
+      padding: 12px 24px;
+      font-size: 1rem;
+      border: 2px solid rgba(255,255,255,0.3);
+      border-radius: 25px;
+      background: rgba(0,0,0,0.5);
+      color: white;
+      cursor: pointer;
+      backdrop-filter: blur(10px);
+      transition: all 0.3s;
+    }
+
+    #connectBtn:hover {
+      background: rgba(255,255,255,0.2);
+      border-color: rgba(255,255,255,0.5);
+    }
+
+    #status {
+      margin-top: 10px;
+      font-size: 0.9rem;
+      opacity: 0.7;
+    }
+
+    #distance-display {
+      margin-top: 5px;
+      font-size: 1.5rem;
+      opacity: 0.5;
+    }
+
+    #title {
+      position: fixed;
+      bottom: 30px;
+      left: 50%;
+      transform: translateX(-50%);
+      color: white;
+      font-size: 1.2rem;
+      letter-spacing: 0.3em;
+      opacity: 0.4;
+      text-transform: uppercase;
+    }
+
+    .hidden { display: none; }
+  </style>
+</head>
+<body>
+  <div id="ui">
+    <button id="connectBtn" onclick="connect()">Connect Sensor</button>
+    <div id="status">Waiting for connection...</div>
+    <div id="distance-display"></div>
+  </div>
+
+  <div id="title">Movement of Love</div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <script>
+    // BLE Setup
+    const UART_SERVICE_UUID = '6e400001-b5a3-f393-e0a9-e50e24dcca9e';
+    const UART_RX_UUID = '6e400003-b5a3-f393-e0a9-e50e24dcca9e';
+
+    let currentDistance = 100; // Start far (repulsion)
+    let targetDistance = 100;
+    let device = null;
+
+    async function connect() {
+      try {
+        document.getElementById('status').textContent = 'Searching...';
+
+        device = await navigator.bluetooth.requestDevice({
+          filters: [{ namePrefix: 'Adafruit' }],
+          optionalServices: [UART_SERVICE_UUID]
+        });
+
+        const server = await device.gatt.connect();
+        const service = await server.getPrimaryService(UART_SERVICE_UUID);
+        const rx = await service.getCharacteristic(UART_RX_UUID);
+
+        await rx.startNotifications();
+        rx.addEventListener('characteristicvaluechanged', (e) => {
+          const data = new TextDecoder().decode(e.target.value);
+          if (data.startsWith('D:')) {
+            const value = parseFloat(data.substring(2));
+            // Only update if valid number (not NaN)
+            if (!isNaN(value) && isFinite(value)) {
+              targetDistance = Math.max(20, Math.min(150, value));
+              document.getElementById('distance-display').textContent = targetDistance.toFixed(0) + ' cm';
+            }
+          }
+        });
+
+        document.getElementById('status').textContent = 'Connected';
+        document.getElementById('connectBtn').textContent = 'Connected';
+
+        device.addEventListener('gattserverdisconnected', () => {
+          document.getElementById('status').textContent = 'Disconnected';
+          document.getElementById('connectBtn').textContent = 'Reconnect';
+        });
+
+      } catch (err) {
+        document.getElementById('status').textContent = 'Error: ' + err.message;
+      }
+    }
+
+    // Three.js Setup
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setPixelRatio(window.devicePixelRatio);
+    document.body.appendChild(renderer.domElement);
+
+    camera.position.z = 50;
+
+    // Particle systems - two swarms
+    const particleCount = 500;
+
+    // Swarm A (left)
+    const geometryA = new THREE.BufferGeometry();
+    const positionsA = new Float32Array(particleCount * 3);
+    const velocitiesA = [];
+    const colorsA = new Float32Array(particleCount * 3);
+
+    // Swarm B (right)
+    const geometryB = new THREE.BufferGeometry();
+    const positionsB = new Float32Array(particleCount * 3);
+    const velocitiesB = [];
+    const colorsB = new Float32Array(particleCount * 3);
+
+    // Initialize particles
+    for (let i = 0; i < particleCount; i++) {
+      const i3 = i * 3;
+
+      // Swarm A - starts left
+      positionsA[i3] = (Math.random() - 0.5) * 10 - 15;
+      positionsA[i3 + 1] = (Math.random() - 0.5) * 10;
+      positionsA[i3 + 2] = (Math.random() - 0.5) * 10;
+      velocitiesA.push({ x: 0, y: 0, z: 0 });
+
+      // Swarm B - starts right
+      positionsB[i3] = (Math.random() - 0.5) * 10 + 15;
+      positionsB[i3 + 1] = (Math.random() - 0.5) * 10;
+      positionsB[i3 + 2] = (Math.random() - 0.5) * 10;
+      velocitiesB.push({ x: 0, y: 0, z: 0 });
+    }
+
+    geometryA.setAttribute('position', new THREE.BufferAttribute(positionsA, 3));
+    geometryA.setAttribute('color', new THREE.BufferAttribute(colorsA, 3));
+    geometryB.setAttribute('position', new THREE.BufferAttribute(positionsB, 3));
+    geometryB.setAttribute('color', new THREE.BufferAttribute(colorsB, 3));
+
+    // Particle material
+    const textureLoader = new THREE.TextureLoader();
+    const particleTexture = createParticleTexture();
+
+    const materialA = new THREE.PointsMaterial({
+      size: 1.5,
+      map: particleTexture,
+      transparent: true,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      vertexColors: true
+    });
+
+    const materialB = new THREE.PointsMaterial({
+      size: 1.5,
+      map: particleTexture,
+      transparent: true,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      vertexColors: true
+    });
+
+    const swarmA = new THREE.Points(geometryA, materialA);
+    const swarmB = new THREE.Points(geometryB, materialB);
+    scene.add(swarmA);
+    scene.add(swarmB);
+
+    // Connection lines
+    const lineGeometry = new THREE.BufferGeometry();
+    const linePositions = new Float32Array(100 * 6);
+    lineGeometry.setAttribute('position', new THREE.BufferAttribute(linePositions, 3));
+
+    const lineMaterial = new THREE.LineBasicMaterial({
+      color: 0xff6b9d,
+      transparent: true,
+      opacity: 0.3,
+      blending: THREE.AdditiveBlending
+    });
+    const connectionLines = new THREE.LineSegments(lineGeometry, lineMaterial);
+    scene.add(connectionLines);
+
+    // Create soft particle texture
+    function createParticleTexture() {
+      const canvas = document.createElement('canvas');
+      canvas.width = 64;
+      canvas.height = 64;
+      const ctx = canvas.getContext('2d');
+
+      const gradient = ctx.createRadialGradient(32, 32, 0, 32, 32, 32);
+      gradient.addColorStop(0, 'rgba(255,255,255,1)');
+      gradient.addColorStop(0.3, 'rgba(255,255,255,0.8)');
+      gradient.addColorStop(1, 'rgba(255,255,255,0)');
+
+      ctx.fillStyle = gradient;
+      ctx.fillRect(0, 0, 64, 64);
+
+      const texture = new THREE.CanvasTexture(canvas);
+      return texture;
+    }
+
+    // Center points for each swarm
+    let centerA = { x: -15, y: 0, z: 0 };
+    let centerB = { x: 15, y: 0, z: 0 };
+    let time = 0;
+
+    // Animation
+    function animate() {
+      requestAnimationFrame(animate);
+      time += 0.01;
+
+      // Smooth distance transition
+      currentDistance += (targetDistance - currentDistance) * 0.05;
+
+      // Map distance to attraction (0-1, where 1 is full attraction)
+      // Close (20cm) = attraction, Far (100cm) = repulsion
+      const attraction = 1 - Math.min(1, Math.max(0, (currentDistance - 20) / 80));
+
+      // Calculate center positions based on attraction
+      const separation = 30 - (attraction * 25); // 30 when far, 5 when close
+      const targetCenterAX = -separation / 2;
+      const targetCenterBX = separation / 2;
+
+      centerA.x += (targetCenterAX - centerA.x) * 0.02;
+      centerB.x += (targetCenterBX - centerB.x) * 0.02;
+
+      // Gentle orbit when attracted
+      if (attraction > 0.5) {
+        const orbitSpeed = attraction * 0.5;
+        centerA.y = Math.sin(time * orbitSpeed) * 3 * attraction;
+        centerA.z = Math.cos(time * orbitSpeed) * 3 * attraction;
+        centerB.y = -Math.sin(time * orbitSpeed) * 3 * attraction;
+        centerB.z = -Math.cos(time * orbitSpeed) * 3 * attraction;
+      }
+
+      // Heartbeat effect when very close
+      const heartbeat = attraction > 0.8 ?
+        1 + Math.sin(time * 8) * 0.1 * (attraction - 0.8) * 5 : 1;
+
+      // Update particles
+      const posA = geometryA.attributes.position.array;
+      const posB = geometryB.attributes.position.array;
+      const colA = geometryA.attributes.color.array;
+      const colB = geometryB.attributes.color.array;
+
+      for (let i = 0; i < particleCount; i++) {
+        const i3 = i * 3;
+
+        // Swarm A physics
+        const dxA = centerA.x - posA[i3];
+        const dyA = centerA.y - posA[i3 + 1];
+        const dzA = centerA.z - posA[i3 + 2];
+
+        const cohesionA = 0.02 + attraction * 0.03;
+        velocitiesA[i].x += dxA * cohesionA;
+        velocitiesA[i].y += dyA * cohesionA;
+        velocitiesA[i].z += dzA * cohesionA;
+
+        // Attraction to swarm B when close
+        if (attraction > 0.3) {
+          const toBx = centerB.x - posA[i3];
+          const toBy = centerB.y - posA[i3 + 1];
+          const toBz = centerB.z - posA[i3 + 2];
+          const attrForce = (attraction - 0.3) * 0.005;
+          velocitiesA[i].x += toBx * attrForce;
+          velocitiesA[i].y += toBy * attrForce;
+          velocitiesA[i].z += toBz * attrForce;
+        }
+
+        // Random movement (more chaotic when repulsed)
+        const chaos = (1 - attraction) * 0.1;
+        velocitiesA[i].x += (Math.random() - 0.5) * chaos;
+        velocitiesA[i].y += (Math.random() - 0.5) * chaos;
+        velocitiesA[i].z += (Math.random() - 0.5) * chaos;
+
+        // Damping
+        velocitiesA[i].x *= 0.95;
+        velocitiesA[i].y *= 0.95;
+        velocitiesA[i].z *= 0.95;
+
+        // Apply velocity
+        posA[i3] += velocitiesA[i].x * heartbeat;
+        posA[i3 + 1] += velocitiesA[i].y * heartbeat;
+        posA[i3 + 2] += velocitiesA[i].z * heartbeat;
+
+        // Same for Swarm B
+        const dxB = centerB.x - posB[i3];
+        const dyB = centerB.y - posB[i3 + 1];
+        const dzB = centerB.z - posB[i3 + 2];
+
+        const cohesionB = 0.02 + attraction * 0.03;
+        velocitiesB[i].x += dxB * cohesionB;
+        velocitiesB[i].y += dyB * cohesionB;
+        velocitiesB[i].z += dzB * cohesionB;
+
+        if (attraction > 0.3) {
+          const toAx = centerA.x - posB[i3];
+          const toAy = centerA.y - posB[i3 + 1];
+          const toAz = centerA.z - posB[i3 + 2];
+          const attrForce = (attraction - 0.3) * 0.005;
+          velocitiesB[i].x += toAx * attrForce;
+          velocitiesB[i].y += toAy * attrForce;
+          velocitiesB[i].z += toAz * attrForce;
+        }
+
+        velocitiesB[i].x += (Math.random() - 0.5) * chaos;
+        velocitiesB[i].y += (Math.random() - 0.5) * chaos;
+        velocitiesB[i].z += (Math.random() - 0.5) * chaos;
+
+        velocitiesB[i].x *= 0.95;
+        velocitiesB[i].y *= 0.95;
+        velocitiesB[i].z *= 0.95;
+
+        posB[i3] += velocitiesB[i].x * heartbeat;
+        posB[i3 + 1] += velocitiesB[i].y * heartbeat;
+        posB[i3 + 2] += velocitiesB[i].z * heartbeat;
+
+        // Colors - warm when attracted, cool when repulsed
+        // Swarm A: pink/red
+        colA[i3] = 1.0; // R
+        colA[i3 + 1] = 0.3 + attraction * 0.4; // G
+        colA[i3 + 2] = 0.5 + (1 - attraction) * 0.5; // B
+
+        // Swarm B: gold/orange
+        colB[i3] = 1.0; // R
+        colB[i3 + 1] = 0.5 + attraction * 0.3; // G
+        colB[i3 + 2] = 0.3 + (1 - attraction) * 0.5; // B
+      }
+
+      geometryA.attributes.position.needsUpdate = true;
+      geometryA.attributes.color.needsUpdate = true;
+      geometryB.attributes.position.needsUpdate = true;
+      geometryB.attributes.color.needsUpdate = true;
+
+      // Update connection lines (visible when attracted)
+      const linePos = connectionLines.geometry.attributes.position.array;
+      lineMaterial.opacity = attraction * 0.4;
+
+      for (let i = 0; i < 50; i++) {
+        const i6 = i * 6;
+        const pA = i * 2;
+        const pB = i * 2 + 1;
+
+        if (attraction > 0.3) {
+          linePos[i6] = posA[pA * 3];
+          linePos[i6 + 1] = posA[pA * 3 + 1];
+          linePos[i6 + 2] = posA[pA * 3 + 2];
+          linePos[i6 + 3] = posB[pB * 3];
+          linePos[i6 + 4] = posB[pB * 3 + 1];
+          linePos[i6 + 5] = posB[pB * 3 + 2];
+        }
+      }
+      connectionLines.geometry.attributes.position.needsUpdate = true;
+
+      // Particle size based on attraction
+      materialA.size = 1.2 + attraction * 1.0;
+      materialB.size = 1.2 + attraction * 1.0;
+
+      // Camera gentle movement
+      camera.position.x = Math.sin(time * 0.2) * 5;
+      camera.position.y = Math.cos(time * 0.15) * 3;
+      camera.lookAt(0, 0, 0);
+
+      // Background color shifts
+      const bgR = 0.02 + attraction * 0.03;
+      const bgG = 0.01 + attraction * 0.02;
+      const bgB = 0.05 - attraction * 0.03;
+      renderer.setClearColor(new THREE.Color(bgR, bgG, bgB));
+
+      renderer.render(scene, camera);
+    }
+
+    animate();
+
+    // Handle resize
+    window.addEventListener('resize', () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+
+    // Keyboard control for testing without sensor
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'ArrowUp') targetDistance = Math.max(20, targetDistance - 10);
+      if (e.key === 'ArrowDown') targetDistance = Math.min(100, targetDistance + 10);
+      document.getElementById('distance-display').textContent = targetDistance.toFixed(0) + ' cm (keyboard)';
+    });
+  </script>
+</body>
+</html>

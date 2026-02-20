@@ -1,0 +1,93 @@
+{
+  "name": "lamina",
+  "version": "1.2.2",
+  "description": "🍰 An extensable, layer based shader material for ThreeJS.",
+  "main": "./lamina.cjs",
+  "module": "./lamina.es.js",
+  "types": "./react.d.ts",
+  "workspaces": [
+    "examples/*"
+  ],
+  "files": [
+    "./**/*"
+  ],
+  "type": "module",
+  "exports": {
+    "./vanilla": {
+      "types": "./vanilla/vanilla.d.ts",
+      "require": "./vanilla/lamina.cjs.js",
+      "import": "./vanilla/lamina.es.js"
+    },
+    ".": {
+      "types": "./react.d.ts",
+      "require": "./lamina.cjs.js",
+      "import": "./lamina.es.js"
+    }
+  },
+  "keywords": [
+    "react",
+    "shaders",
+    "layers",
+    "materials",
+    "threejs",
+    "webgl",
+    "3d"
+  ],
+  "scripts": {
+    "dev": "vite build --watch",
+    "build": "vite build && cp ./package.json ./dist/package.json"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/pmndrs/lamina.git"
+  },
+  "author": "Faraz Shaikh <farazzshaikh@gmail.com>",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/pmndrs/lamina/issues"
+  },
+  "devDependencies": {
+    "@react-three/fiber": "^9.1.2",
+    "@types/node": "^24.0.3",
+    "@types/react": "^19.1.8",
+    "@types/react-dom": "^19.1.6",
+    "@types/three": "^0.177.0",
+    "@vitejs/plugin-react": "^4.2.1",
+    "json": "^11.0.0",
+    "lint-staged": "^16.1.2",
+    "prettier": "^3.5.3",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "rollup-plugin-exclude-dependencies-from-bundle": "^1.1.24",
+    "three": "^0.177.0",
+    "typescript": "^5.8.3",
+    "vite": "^5.2.0",
+    "vite-plugin-dts": "^3.8.1"
+  },
+  "dependencies": {
+    "glsl-token-descope": "^1.0.2",
+    "glsl-token-functions": "^1.0.1",
+    "glsl-token-string": "^1.0.1",
+    "glsl-tokenizer": "^2.1.5",
+    "leva": "^0.10.0",
+    "three-custom-shader-material": "^6.3.7"
+  },
+  "peerDependencies": {
+    "@react-three/fiber": ">=8.0",
+    "react": ">=19.0",
+    "react-dom": ">=19.0",
+    "three": ">=0.170"
+  },
+  "peerDependenciesMeta": {
+    "@react-three/fiber": {
+      "optional": true
+    },
+    "react": {
+      "optional": true
+    },
+    "react-dom": {
+      "optional": true
+    }
+  },
+  "packageManager": "yarn@4.9.2"
+}

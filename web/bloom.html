@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Generative Bloom</title>
+  <style>
+    * { margin: 0; padding: 0; }
+    body {
+      overflow: hidden;
+      background: #0a0610;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+    }
+
+    #ui {
+      position: fixed;
+      top: 20px;
+      left: 20px;
+      z-index: 100;
+      color: white;
+      font-family: -apple-system, sans-serif;
+    }
+
+    #connectBtn {
+      padding: 12px 24px;
+      font-size: 1rem;
+      border: 2px solid rgba(255,255,255,0.2);
+      border-radius: 25px;
+      background: rgba(0,0,0,0.3);
+      color: white;
+      cursor: pointer;
+      backdrop-filter: blur(10px);
+      transition: all 0.3s;
+    }
+
+    #connectBtn:hover {
+      background: rgba(255,255,255,0.1);
+    }
+
+    #info {
+      margin-top: 10px;
+      font-size: 0.85rem;
+      opacity: 0.6;
+    }
+
+    #title {
+      position: fixed;
+      bottom: 30px;
+      left: 50%;
+      transform: translateX(-50%);
+      color: white;
+      font-size: 0.9rem;
+      letter-spacing: 0.4em;
+      opacity: 0.25;
+      text-transform: uppercase;
+    }
+  </style>
+</head>
+<body>
+  <div id="ui">
+    <button id="connectBtn" onclick="connect()">Connect Sensor</button>
+    <div id="info">↑↓ keys to test</div>
+  </div>
+
+  <div id="title">Movement of Love</div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.0/p5.min.js"></script>
+  <script>
+    // BLE Setup
+    const UART_SERVICE_UUID = '6e400001-b5a3-f393-e0a9-e50e24dcca9e';
+    const UART_RX_UUID = '6e400003-b5a3-f393-e0a9-e50e24dcca9e';
+
+    let targetDistance = 100;
+    let currentDistance = 100;
+    let bloom = 0;
+
+    async function connect() {
+      try {
+        document.getElementById('info').textContent = 'Connecting...';
+        const device = await navigator.bluetooth.requestDevice({
+          filters: [{ namePrefix: 'Adafruit' }],
+          optionalServices: [UART_SERVICE_UUID]
+        });
+        const server = await device.gatt.connect();
+        const service = await server.getPrimaryService(UART_SERVICE_UUID);
+        const rx = await service.getCharacteristic(UART_RX_UUID);
+        await rx.startNotifications();
+
+        rx.addEventListener('characteristicvaluechanged', (e) => {
+          const data = new TextDecoder().decode(e.target.value);
+          if (data.startsWith('D:')) {
+            const value = parseFloat(data.substring(2));
+            if (!isNaN(value) && isFinite(value)) {
+              targetDistance = Math.max(20, Math.min(150, value));
+              document.getElementById('info').textContent = targetDistance.toFixed(0) + ' cm';
+            }
+          }
+        });
+
+        document.getElementById('connectBtn').textContent = 'Connected';
+      } catch (err) {
+        document.getElementById('info').textContent = err.message;
+      }
+    }
+
+    // Keyboard test
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'ArrowUp') targetDistance = Math.max(20, targetDistance - 5);
+      if (e.key === 'ArrowDown') targetDistance = Math.min(150, targetDistance + 5);
+      document.getElementById('info').textContent = targetDistance.toFixed(0) + ' cm';
+    });
+
+    // p5.js Sketch
+    let flowers = [];
+    let particles = [];
+    let time = 0;
+
+    function setup() {
+      createCanvas(windowWidth, windowHeight);
+      colorMode(HSB, 360, 100, 100, 100);
+
+      // Create main flower and smaller ones
+      flowers.push(new Flower(width/2, height/2, 1.0));
+      flowers.push(new Flower(width/2 - 200, height/2 + 100, 0.5));
+      flowers.push(new Flower(width/2 + 180, height/2 - 80, 0.6));
+      flowers.push(new Flower(width/2 - 120, height/2 - 150, 0.4));
+      flowers.push(new Flower(width/2 + 220, height/2 + 130, 0.45));
+    }
+
+    function draw() {
+      time += 0.01;
+
+      // Smooth distance and bloom
+      currentDistance += (targetDistance - currentDistance) * 0.05;
+      const targetBloom = map(currentDistance, 100, 20, 0, 1);
+      bloom += (targetBloom - bloom) * 0.03;
+      bloom = constrain(bloom, 0, 1);
+
+      // Dynamic background
+      const bgHue = lerp(250, 320, bloom);
+      background(bgHue, 30, lerp(4, 8, bloom));
+
+      // Draw particles first (behind flowers)
+      updateParticles();
+
+      // Draw flowers
+      flowers.forEach(f => f.draw(bloom, time));
+
+      // Emit particles when blooming
+      if (bloom > 0.3 && frameCount % 3 === 0) {
+        emitParticle();
+      }
+
+      // Center glow
+      drawCenterGlow();
+    }
+
+    class Flower {
+      constructor(x, y, scale) {
+        this.x = x;
+        this.y = y;
+        this.scale = scale;
+        this.petalLayers = 5;
+        this.petalsPerLayer = [6, 8, 12, 16, 20];
+        this.baseHue = random(320, 360);
+        this.noiseOffset = random(1000);
+      }
+
+      draw(bloom, time) {
+        push();
+        translate(this.x, this.y);
+
+        const s = this.scale;
+        const breathe = 1 + sin(time * 2 + this.noiseOffset) * 0.03 * bloom;
+        scale(s * breathe);
+
+        // Draw petal layers (back to front)
+        for (let layer = this.petalLayers - 1; layer >= 0; layer--) {
+          const layerBloom = constrain(map(bloom, layer * 0.15, layer * 0.15 + 0.4, 0, 1), 0, 1);
+          if (layerBloom <= 0) continue;
+
+          const numPetals = this.petalsPerLayer[layer];
+          const layerRadius = 30 + layer * 35;
+          const petalSize = (50 + layer * 15) * layerBloom;
+
+          for (let i = 0; i < numPetals; i++) {
+            const angle = (TWO_PI / numPetals) * i + layer * 0.2;
+            const wobble = noise(this.noiseOffset + i * 0.1 + time) * 0.3;
+            const finalAngle = angle + wobble * bloom;
+
+            // Petal position with bloom animation
+            const openAmount = layerBloom;
+            const px = cos(finalAngle) * layerRadius * openAmount;
+            const py = sin(finalAngle) * layerRadius * openAmount;
+
+            // Petal color
+            const hue = (this.baseHue + layer * 8 + i * 2) % 360;
+            const sat = 60 + layer * 5;
+            const bri = 70 + layerBloom * 25;
+            const alpha = 70 + layerBloom * 30;
+
+            this.drawPetal(px, py, finalAngle, petalSize, hue, sat, bri, alpha, time);
+          }
+        }
+
+        // Center
+        this.drawCenter(bloom, time);
+
+        pop();
+      }
+
+      drawPetal(x, y, angle, size, hue, sat, bri, alpha, time) {
+        push();
+        translate(x, y);
+        rotate(angle + HALF_PI);
+
+        // Petal shape using bezier curves
+        noStroke();
+        fill(hue, sat, bri, alpha);
+
+        const w = size * 0.4;
+        const h = size;
+        const curl = sin(time * 3 + x * 0.01) * 5 * bloom;
+
+        beginShape();
+        vertex(0, 0);
+        bezierVertex(-w * 0.8, -h * 0.3, -w, -h * 0.7, curl, -h);
+        bezierVertex(w, -h * 0.7, w * 0.8, -h * 0.3, 0, 0);
+        endShape(CLOSE);
+
+        // Inner petal highlight
+        fill(hue, sat - 20, bri + 15, alpha * 0.5);
+        beginShape();
+        vertex(0, -h * 0.1);
+        bezierVertex(-w * 0.4, -h * 0.4, -w * 0.3, -h * 0.6, curl * 0.5, -h * 0.85);
+        bezierVertex(w * 0.3, -h * 0.6, w * 0.4, -h * 0.4, 0, -h * 0.1);
+        endShape(CLOSE);
+
+        pop();
+      }
+
+      drawCenter(bloom, time) {
+        const pulse = 1 + sin(time * 4) * 0.1 * bloom;
+        const centerSize = 25 * bloom * pulse;
+
+        // Outer glow
+        for (let i = 3; i > 0; i--) {
+          fill(45, 80, 90, 20 / i);
+          noStroke();
+          ellipse(0, 0, centerSize * (1 + i * 0.5), centerSize * (1 + i * 0.5));
+        }
+
+        // Center orb
+        fill(45, 70, 95);
+        ellipse(0, 0, centerSize, centerSize);
+
+        // Sparkle dots
+        fill(50, 50, 100);
+        for (let i = 0; i < 8; i++) {
+          const a = (TWO_PI / 8) * i + time;
+          const r = centerSize * 0.3;
+          const sx = cos(a) * r;
+          const sy = sin(a) * r;
+          ellipse(sx, sy, 3 * bloom, 3 * bloom);
+        }
+      }
+    }
+
+    function emitParticle() {
+      const flower = random(flowers);
+      particles.push({
+        x: flower.x + random(-50, 50) * flower.scale,
+        y: flower.y + random(-50, 50) * flower.scale,
+        vx: random(-1, 1),
+        vy: random(-2, -0.5),
+        size: random(2, 6),
+        hue: random(320, 60),
+        life: 1
+      });
+    }
+
+    function updateParticles() {
+      for (let i = particles.length - 1; i >= 0; i--) {
+        const p = particles[i];
+
+        p.x += p.vx;
+        p.y += p.vy;
+        p.vy -= 0.01; // float up
+        p.vx += random(-0.1, 0.1);
+        p.life -= 0.008;
+
+        if (p.life <= 0) {
+          particles.splice(i, 1);
+          continue;
+        }
+
+        noStroke();
+        fill(p.hue, 60, 90, p.life * 80);
+        ellipse(p.x, p.y, p.size * p.life, p.size * p.life);
+      }
+
+      // Limit particles
+      if (particles.length > 150) {
+        particles.splice(0, 10);
+      }
+    }
+
+    function drawCenterGlow() {
+      // Soft radial glow when blooming
+      if (bloom > 0.2) {
+        noStroke();
+        for (let r = 400; r > 0; r -= 20) {
+          const alpha = map(r, 400, 0, 0, bloom * 15);
+          fill(340, 40, 80, alpha);
+          ellipse(width/2, height/2, r, r);
+        }
+      }
+    }
+
+    function windowResized() {
+      resizeCanvas(windowWidth, windowHeight);
+      // Reposition flowers
+      flowers[0].x = width/2;
+      flowers[0].y = height/2;
+      flowers[1].x = width/2 - 200;
+      flowers[1].y = height/2 + 100;
+      flowers[2].x = width/2 + 180;
+      flowers[2].y = height/2 - 80;
+      flowers[3].x = width/2 - 120;
+      flowers[3].y = height/2 - 150;
+      flowers[4].x = width/2 + 220;
+      flowers[4].y = height/2 + 130;
+    }
+  </script>
+</body>
+</html>

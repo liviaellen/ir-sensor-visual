@@ -1,0 +1,469 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Blooming Garden</title>
+  <style>
+    * { margin: 0; padding: 0; }
+    body { overflow: hidden; background: #0a0a12; }
+    canvas { display: block; }
+
+    #ui {
+      position: fixed;
+      top: 20px;
+      left: 20px;
+      z-index: 100;
+      color: white;
+      font-family: -apple-system, sans-serif;
+    }
+
+    #connectBtn {
+      padding: 12px 24px;
+      font-size: 1rem;
+      border: 2px solid rgba(255,255,255,0.3);
+      border-radius: 25px;
+      background: rgba(0,0,0,0.5);
+      color: white;
+      cursor: pointer;
+      backdrop-filter: blur(10px);
+    }
+
+    #connectBtn:hover {
+      background: rgba(255,255,255,0.2);
+    }
+
+    #info {
+      margin-top: 10px;
+      font-size: 0.9rem;
+      opacity: 0.7;
+    }
+
+    #title {
+      position: fixed;
+      bottom: 30px;
+      left: 50%;
+      transform: translateX(-50%);
+      color: white;
+      font-size: 1rem;
+      letter-spacing: 0.3em;
+      opacity: 0.3;
+      text-transform: uppercase;
+    }
+
+    #hint {
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      color: white;
+      font-size: 1.5rem;
+      opacity: 0.6;
+      pointer-events: none;
+      transition: opacity 0.5s;
+    }
+  </style>
+</head>
+<body>
+  <div id="ui">
+    <button id="connectBtn" onclick="connect()">Connect Sensor</button>
+    <div id="info">Use ↑↓ keys to test</div>
+  </div>
+
+  <div id="hint">Come closer to awaken the garden...</div>
+  <div id="title">Blooming Garden</div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <script>
+    // BLE
+    const UART_SERVICE_UUID = '6e400001-b5a3-f393-e0a9-e50e24dcca9e';
+    const UART_RX_UUID = '6e400003-b5a3-f393-e0a9-e50e24dcca9e';
+
+    let targetDistance = 100;
+    let currentDistance = 100;
+
+    async function connect() {
+      try {
+        document.getElementById('info').textContent = 'Connecting...';
+        const device = await navigator.bluetooth.requestDevice({
+          filters: [{ namePrefix: 'Adafruit' }],
+          optionalServices: [UART_SERVICE_UUID]
+        });
+        const server = await device.gatt.connect();
+        const service = await server.getPrimaryService(UART_SERVICE_UUID);
+        const rx = await service.getCharacteristic(UART_RX_UUID);
+        await rx.startNotifications();
+
+        rx.addEventListener('characteristicvaluechanged', (e) => {
+          const data = new TextDecoder().decode(e.target.value);
+          if (data.startsWith('D:')) {
+            const value = parseFloat(data.substring(2));
+            // Only update if valid number (not NaN)
+            if (!isNaN(value) && isFinite(value)) {
+              targetDistance = Math.max(20, Math.min(150, value));
+              document.getElementById('info').textContent = targetDistance.toFixed(0) + ' cm';
+            }
+          }
+        });
+
+        document.getElementById('connectBtn').textContent = 'Connected';
+        document.getElementById('info').textContent = 'Sensor active';
+      } catch (err) {
+        document.getElementById('info').textContent = err.message;
+      }
+    }
+
+    // Three.js
+    const scene = new THREE.Scene();
+    scene.fog = new THREE.FogExp2(0x0a0a12, 0.015);
+
+    const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
+    camera.position.set(0, 15, 40);
+    camera.lookAt(0, 5, 0);
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    document.body.appendChild(renderer.domElement);
+
+    // Lights
+    const ambientLight = new THREE.AmbientLight(0x222233, 0.5);
+    scene.add(ambientLight);
+
+    const pointLight = new THREE.PointLight(0xff88aa, 1, 100);
+    pointLight.position.set(0, 20, 0);
+    scene.add(pointLight);
+
+    // Ground particles (grass-like)
+    const groundGeo = new THREE.BufferGeometry();
+    const groundCount = 2000;
+    const groundPos = new Float32Array(groundCount * 3);
+    const groundCol = new Float32Array(groundCount * 3);
+
+    for (let i = 0; i < groundCount; i++) {
+      const i3 = i * 3;
+      const radius = Math.random() * 50;
+      const angle = Math.random() * Math.PI * 2;
+      groundPos[i3] = Math.cos(angle) * radius;
+      groundPos[i3 + 1] = Math.random() * 0.5;
+      groundPos[i3 + 2] = Math.sin(angle) * radius;
+
+      groundCol[i3] = 0.1 + Math.random() * 0.1;
+      groundCol[i3 + 1] = 0.3 + Math.random() * 0.2;
+      groundCol[i3 + 2] = 0.2 + Math.random() * 0.1;
+    }
+
+    groundGeo.setAttribute('position', new THREE.BufferAttribute(groundPos, 3));
+    groundGeo.setAttribute('color', new THREE.BufferAttribute(groundCol, 3));
+
+    const groundMat = new THREE.PointsMaterial({
+      size: 0.3,
+      vertexColors: true,
+      transparent: true,
+      opacity: 0.8
+    });
+
+    scene.add(new THREE.Points(groundGeo, groundMat));
+
+    // Flower class
+    class Flower {
+      constructor(x, z, color, size) {
+        this.x = x;
+        this.z = z;
+        this.color = color;
+        this.size = size;
+        this.bloom = 0;
+        this.targetBloom = 0;
+        this.petalCount = 80;
+        this.sparkleCount = 30;
+
+        // Stem
+        const stemGeo = new THREE.CylinderGeometry(0.1, 0.15, size * 5, 8);
+        const stemMat = new THREE.MeshBasicMaterial({ color: 0x2d5a27 });
+        this.stem = new THREE.Mesh(stemGeo, stemMat);
+        this.stem.position.set(x, size * 2.5, z);
+        scene.add(this.stem);
+
+        // Petals (particles)
+        this.petalGeo = new THREE.BufferGeometry();
+        this.petalPositions = new Float32Array(this.petalCount * 3);
+        this.petalColors = new Float32Array(this.petalCount * 3);
+        this.petalBasePositions = [];
+
+        for (let i = 0; i < this.petalCount; i++) {
+          const angle = (i / this.petalCount) * Math.PI * 2;
+          const ring = Math.floor(i / 20);
+          const radius = 0.5 + ring * 0.8;
+
+          this.petalBasePositions.push({
+            angle: angle,
+            radius: radius,
+            height: ring * 0.3,
+            offset: Math.random() * 0.5
+          });
+        }
+
+        this.petalGeo.setAttribute('position', new THREE.BufferAttribute(this.petalPositions, 3));
+        this.petalGeo.setAttribute('color', new THREE.BufferAttribute(this.petalColors, 3));
+
+        const petalMat = new THREE.PointsMaterial({
+          size: size * 0.8,
+          vertexColors: true,
+          transparent: true,
+          opacity: 0.9,
+          blending: THREE.AdditiveBlending
+        });
+
+        this.petals = new THREE.Points(this.petalGeo, petalMat);
+        this.petals.position.set(x, size * 5, z);
+        scene.add(this.petals);
+
+        // Center
+        const centerGeo = new THREE.SphereGeometry(size * 0.5, 16, 16);
+        const centerMat = new THREE.MeshBasicMaterial({ color: 0xffdd44 });
+        this.center = new THREE.Mesh(centerGeo, centerMat);
+        this.center.position.set(x, size * 5, z);
+        scene.add(this.center);
+
+        // Sparkles
+        this.sparkleGeo = new THREE.BufferGeometry();
+        this.sparklePositions = new Float32Array(this.sparkleCount * 3);
+        this.sparkleVelocities = [];
+
+        for (let i = 0; i < this.sparkleCount; i++) {
+          this.sparkleVelocities.push({
+            x: (Math.random() - 0.5) * 0.1,
+            y: Math.random() * 0.1 + 0.05,
+            z: (Math.random() - 0.5) * 0.1,
+            life: Math.random()
+          });
+        }
+
+        this.sparkleGeo.setAttribute('position', new THREE.BufferAttribute(this.sparklePositions, 3));
+
+        const sparkleMat = new THREE.PointsMaterial({
+          size: size * 0.3,
+          color: 0xffffaa,
+          transparent: true,
+          opacity: 0.8,
+          blending: THREE.AdditiveBlending
+        });
+
+        this.sparkles = new THREE.Points(this.sparkleGeo, sparkleMat);
+        this.sparkles.position.set(x, size * 5, z);
+        scene.add(this.sparkles);
+      }
+
+      update(time, globalBloom) {
+        this.targetBloom = globalBloom;
+        this.bloom += (this.targetBloom - this.bloom) * 0.05;
+
+        const positions = this.petalGeo.attributes.position.array;
+        const colors = this.petalGeo.attributes.color.array;
+
+        for (let i = 0; i < this.petalCount; i++) {
+          const i3 = i * 3;
+          const base = this.petalBasePositions[i];
+
+          const bloomRadius = base.radius * this.bloom * this.size;
+          const bloomHeight = base.height * this.bloom;
+          const wave = Math.sin(time * 2 + base.angle * 3) * 0.1 * this.bloom;
+
+          positions[i3] = Math.cos(base.angle + time * 0.2) * bloomRadius;
+          positions[i3 + 1] = bloomHeight + wave;
+          positions[i3 + 2] = Math.sin(base.angle + time * 0.2) * bloomRadius;
+
+          // Color based on bloom
+          const hue = this.color;
+          const saturation = 0.5 + this.bloom * 0.5;
+          const lightness = 0.3 + this.bloom * 0.4;
+
+          const rgb = hslToRgb(hue, saturation, lightness);
+          colors[i3] = rgb.r;
+          colors[i3 + 1] = rgb.g;
+          colors[i3 + 2] = rgb.b;
+        }
+
+        this.petalGeo.attributes.position.needsUpdate = true;
+        this.petalGeo.attributes.color.needsUpdate = true;
+
+        // Center pulse
+        const pulse = 1 + Math.sin(time * 4) * 0.1 * this.bloom;
+        this.center.scale.set(this.bloom * pulse, this.bloom * pulse, this.bloom * pulse);
+
+        // Sparkles (only when blooming)
+        const sparklePos = this.sparkleGeo.attributes.position.array;
+        this.sparkles.material.opacity = this.bloom * 0.6;
+
+        for (let i = 0; i < this.sparkleCount; i++) {
+          const i3 = i * 3;
+          const vel = this.sparkleVelocities[i];
+
+          vel.life += 0.02;
+          if (vel.life > 1) {
+            vel.life = 0;
+            sparklePos[i3] = (Math.random() - 0.5) * 2 * this.bloom * this.size;
+            sparklePos[i3 + 1] = 0;
+            sparklePos[i3 + 2] = (Math.random() - 0.5) * 2 * this.bloom * this.size;
+          }
+
+          sparklePos[i3] += vel.x;
+          sparklePos[i3 + 1] += vel.y * this.bloom;
+          sparklePos[i3 + 2] += vel.z;
+        }
+
+        this.sparkleGeo.attributes.position.needsUpdate = true;
+
+        // Stem sway
+        this.stem.rotation.x = Math.sin(time + this.x) * 0.05;
+        this.stem.rotation.z = Math.cos(time + this.z) * 0.05;
+      }
+    }
+
+    // HSL to RGB helper
+    function hslToRgb(h, s, l) {
+      let r, g, b;
+      if (s === 0) {
+        r = g = b = l;
+      } else {
+        const hue2rgb = (p, q, t) => {
+          if (t < 0) t += 1;
+          if (t > 1) t -= 1;
+          if (t < 1/6) return p + (q - p) * 6 * t;
+          if (t < 1/2) return q;
+          if (t < 2/3) return p + (q - p) * (2/3 - t) * 6;
+          return p;
+        };
+        const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+        const p = 2 * l - q;
+        r = hue2rgb(p, q, h + 1/3);
+        g = hue2rgb(p, q, h);
+        b = hue2rgb(p, q, h - 1/3);
+      }
+      return { r, g, b };
+    }
+
+    // Create flowers
+    const flowers = [];
+    const flowerPositions = [
+      { x: 0, z: 0, color: 0.9, size: 1.2 },      // Pink center
+      { x: -6, z: 3, color: 0.8, size: 1.0 },     // Magenta
+      { x: 5, z: 4, color: 0.95, size: 0.9 },     // Red
+      { x: -4, z: -5, color: 0.75, size: 1.1 },   // Purple
+      { x: 7, z: -3, color: 0.85, size: 0.8 },    // Pink
+      { x: -8, z: -2, color: 0.6, size: 0.9 },    // Blue
+      { x: 3, z: -7, color: 0.55, size: 1.0 },    // Cyan
+      { x: -3, z: 8, color: 0.1, size: 0.85 },    // Orange
+      { x: 10, z: 2, color: 0.15, size: 0.75 },   // Yellow-orange
+    ];
+
+    flowerPositions.forEach(f => {
+      flowers.push(new Flower(f.x, f.z, f.color, f.size));
+    });
+
+    // Floating particles (magic dust)
+    const dustGeo = new THREE.BufferGeometry();
+    const dustCount = 200;
+    const dustPositions = new Float32Array(dustCount * 3);
+    const dustVelocities = [];
+
+    for (let i = 0; i < dustCount; i++) {
+      const i3 = i * 3;
+      dustPositions[i3] = (Math.random() - 0.5) * 60;
+      dustPositions[i3 + 1] = Math.random() * 30;
+      dustPositions[i3 + 2] = (Math.random() - 0.5) * 60;
+      dustVelocities.push({
+        x: (Math.random() - 0.5) * 0.02,
+        y: (Math.random() - 0.5) * 0.01,
+        z: (Math.random() - 0.5) * 0.02
+      });
+    }
+
+    dustGeo.setAttribute('position', new THREE.BufferAttribute(dustPositions, 3));
+
+    const dustMat = new THREE.PointsMaterial({
+      size: 0.2,
+      color: 0xffffff,
+      transparent: true,
+      opacity: 0.4,
+      blending: THREE.AdditiveBlending
+    });
+
+    const dust = new THREE.Points(dustGeo, dustMat);
+    scene.add(dust);
+
+    // Animation
+    let time = 0;
+
+    function animate() {
+      requestAnimationFrame(animate);
+      time += 0.016;
+
+      // Smooth distance
+      currentDistance += (targetDistance - currentDistance) * 0.08;
+
+      // Calculate bloom (close = 1, far = 0)
+      const bloom = 1 - Math.min(1, Math.max(0, (currentDistance - 20) / 80));
+
+      // Update hint
+      const hint = document.getElementById('hint');
+      hint.style.opacity = bloom < 0.2 ? 0.6 : 0;
+
+      // Update flowers
+      flowers.forEach(flower => flower.update(time, bloom));
+
+      // Update dust
+      const dustPos = dustGeo.attributes.position.array;
+      dustMat.opacity = 0.2 + bloom * 0.4;
+
+      for (let i = 0; i < dustCount; i++) {
+        const i3 = i * 3;
+        const vel = dustVelocities[i];
+
+        dustPos[i3] += vel.x + Math.sin(time + i) * 0.01;
+        dustPos[i3 + 1] += vel.y + Math.cos(time * 0.5 + i) * 0.01 + bloom * 0.02;
+        dustPos[i3 + 2] += vel.z;
+
+        // Reset if too far
+        if (Math.abs(dustPos[i3]) > 30) dustPos[i3] *= -0.9;
+        if (dustPos[i3 + 1] > 30 || dustPos[i3 + 1] < 0) {
+          dustPos[i3 + 1] = Math.random() * 5;
+        }
+        if (Math.abs(dustPos[i3 + 2]) > 30) dustPos[i3 + 2] *= -0.9;
+      }
+      dustGeo.attributes.position.needsUpdate = true;
+
+      // Camera movement
+      camera.position.x = Math.sin(time * 0.1) * 5;
+      camera.position.y = 12 + Math.sin(time * 0.15) * 2 + bloom * 5;
+      camera.lookAt(0, 5 + bloom * 3, 0);
+
+      // Light intensity
+      pointLight.intensity = 0.5 + bloom * 1.5;
+      pointLight.color.setHSL(0.9, 0.5, 0.5 + bloom * 0.3);
+
+      // Background
+      const bgIntensity = 0.04 + bloom * 0.03;
+      renderer.setClearColor(new THREE.Color(bgIntensity * 0.5, bgIntensity * 0.4, bgIntensity * 1.2));
+
+      renderer.render(scene, camera);
+    }
+
+    animate();
+
+    // Resize
+    window.addEventListener('resize', () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+
+    // Keyboard test
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'ArrowUp') targetDistance = Math.max(20, targetDistance - 5);
+      if (e.key === 'ArrowDown') targetDistance = Math.min(100, targetDistance + 5);
+      document.getElementById('info').textContent = targetDistance.toFixed(0) + ' cm';
+    });
+  </script>
+</body>
+</html>

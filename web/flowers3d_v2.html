@@ -1,0 +1,570 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Procedural Garden</title>
+  <style>
+    * { margin: 0; padding: 0; }
+    body { overflow: hidden; background: #000; }
+    canvas { display: block; }
+
+    #ui {
+      position: fixed;
+      top: 20px;
+      left: 20px;
+      z-index: 100;
+      color: white;
+      font-family: -apple-system, sans-serif;
+    }
+
+    #connectBtn {
+      padding: 12px 24px;
+      font-size: 1rem;
+      border: 2px solid rgba(255,255,255,0.2);
+      border-radius: 25px;
+      background: rgba(0,0,0,0.4);
+      color: white;
+      cursor: pointer;
+      backdrop-filter: blur(10px);
+    }
+
+    #info {
+      margin-top: 10px;
+      font-size: 0.85rem;
+      opacity: 0.6;
+    }
+
+    #title {
+      position: fixed;
+      bottom: 30px;
+      left: 50%;
+      transform: translateX(-50%);
+      color: white;
+      font-size: 0.9rem;
+      letter-spacing: 0.4em;
+      opacity: 0.2;
+      text-transform: uppercase;
+    }
+  </style>
+</head>
+<body>
+  <div id="ui">
+    <button id="connectBtn" onclick="connect()">Connect Sensor</button>
+    <div id="info">↑↓ keys to test</div>
+  </div>
+
+  <div id="title">Movement of Love</div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <script>
+    // BLE
+    const UART_SERVICE_UUID = '6e400001-b5a3-f393-e0a9-e50e24dcca9e';
+    const UART_RX_UUID = '6e400003-b5a3-f393-e0a9-e50e24dcca9e';
+
+    let targetDistance = 100;
+    let currentDistance = 100;
+
+    async function connect() {
+      try {
+        document.getElementById('info').textContent = 'Connecting...';
+        const device = await navigator.bluetooth.requestDevice({
+          filters: [{ namePrefix: 'Adafruit' }],
+          optionalServices: [UART_SERVICE_UUID]
+        });
+        const server = await device.gatt.connect();
+        const service = await server.getPrimaryService(UART_SERVICE_UUID);
+        const rx = await service.getCharacteristic(UART_RX_UUID);
+        await rx.startNotifications();
+
+        rx.addEventListener('characteristicvaluechanged', (e) => {
+          const data = new TextDecoder().decode(e.target.value);
+          if (data.startsWith('D:')) {
+            const value = parseFloat(data.substring(2));
+            if (!isNaN(value) && isFinite(value)) {
+              targetDistance = Math.max(20, Math.min(150, value));
+              document.getElementById('info').textContent = targetDistance.toFixed(0) + ' cm';
+            }
+          }
+        });
+
+        document.getElementById('connectBtn').textContent = 'Connected';
+      } catch (err) {
+        document.getElementById('info').textContent = err.message;
+      }
+    }
+
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'ArrowUp') targetDistance = Math.max(20, targetDistance - 5);
+      if (e.key === 'ArrowDown') targetDistance = Math.min(150, targetDistance + 5);
+      document.getElementById('info').textContent = targetDistance.toFixed(0) + ' cm';
+    });
+
+    // Shaders
+    const petalVertexShader = `
+      uniform float uTime;
+      uniform float uBloom;
+      uniform float uGrowth;
+
+      varying vec2 vUv;
+      varying vec3 vNormal;
+      varying float vDisplacement;
+
+      void main() {
+        vUv = uv;
+        vNormal = normal;
+
+        vec3 pos = position;
+
+        // Petal curl effect
+        float curl = sin(uv.y * 3.14159) * 0.3 * uBloom;
+        pos.z += curl * (1.0 - uv.y);
+
+        // Wave animation
+        float wave = sin(uTime * 2.0 + uv.x * 6.28) * 0.05 * uBloom;
+        pos.z += wave;
+
+        // Scale based on growth
+        pos *= uGrowth;
+
+        vDisplacement = curl + wave;
+
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(pos, 1.0);
+      }
+    `;
+
+    const petalFragmentShader = `
+      uniform vec3 uColorInner;
+      uniform vec3 uColorOuter;
+      uniform float uBloom;
+      uniform float uTime;
+
+      varying vec2 vUv;
+      varying vec3 vNormal;
+      varying float vDisplacement;
+
+      void main() {
+        // Gradient from center to edge
+        float gradient = vUv.y;
+        vec3 color = mix(uColorInner, uColorOuter, gradient);
+
+        // Add shimmer
+        float shimmer = sin(uTime * 3.0 + vUv.x * 10.0 + vUv.y * 10.0) * 0.1 + 0.9;
+        color *= shimmer;
+
+        // Fresnel glow
+        float fresnel = pow(1.0 - abs(dot(vNormal, vec3(0.0, 0.0, 1.0))), 2.0);
+        color += vec3(1.0, 0.8, 0.9) * fresnel * uBloom * 0.3;
+
+        // Soft edges
+        float alpha = smoothstep(0.0, 0.1, vUv.y) * smoothstep(1.0, 0.8, vUv.y);
+        alpha *= smoothstep(0.0, 0.2, vUv.x) * smoothstep(1.0, 0.8, vUv.x);
+
+        gl_FragColor = vec4(color, alpha * (0.7 + uBloom * 0.3));
+      }
+    `;
+
+    // Scene setup
+    const scene = new THREE.Scene();
+    scene.fog = new THREE.FogExp2(0x0a0812, 0.02);
+
+    const camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 1000);
+    camera.position.set(0, 3, 12);
+    camera.lookAt(0, 2, 0);
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    document.body.appendChild(renderer.domElement);
+
+    // Lights
+    const ambientLight = new THREE.AmbientLight(0x2a1a3a, 0.4);
+    scene.add(ambientLight);
+
+    const mainLight = new THREE.DirectionalLight(0xffeedd, 0.6);
+    mainLight.position.set(5, 10, 5);
+    scene.add(mainLight);
+
+    const rimLight = new THREE.PointLight(0xff88aa, 0.8, 20);
+    rimLight.position.set(0, 5, -5);
+    scene.add(rimLight);
+
+    const groundLight = new THREE.PointLight(0x88ffaa, 0.3, 15);
+    groundLight.position.set(0, 0.5, 0);
+    scene.add(groundLight);
+
+    // Ground with gradient
+    const groundGeo = new THREE.PlaneGeometry(60, 40, 100, 100);
+    const groundMat = new THREE.ShaderMaterial({
+      uniforms: {
+        uTime: { value: 0 },
+        uBloom: { value: 0 }
+      },
+      vertexShader: `
+        varying vec2 vUv;
+        varying vec3 vPos;
+        void main() {
+          vUv = uv;
+          vPos = position;
+          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        }
+      `,
+      fragmentShader: `
+        uniform float uTime;
+        uniform float uBloom;
+        varying vec2 vUv;
+        varying vec3 vPos;
+
+        void main() {
+          float dist = length(vPos.xy) * 0.05;
+          vec3 color1 = vec3(0.05, 0.08, 0.03);
+          vec3 color2 = vec3(0.02, 0.04, 0.02);
+          vec3 color = mix(color1, color2, dist);
+
+          // Add subtle glow in center when blooming
+          float glow = exp(-dist * 2.0) * uBloom * 0.1;
+          color += vec3(0.1, 0.2, 0.05) * glow;
+
+          gl_FragColor = vec4(color, 1.0);
+        }
+      `
+    });
+    const ground = new THREE.Mesh(groundGeo, groundMat);
+    ground.rotation.x = -Math.PI / 2;
+    scene.add(ground);
+
+    // Procedural Flower class
+    class ProceduralFlower {
+      constructor(x, z, config) {
+        this.group = new THREE.Group();
+        this.group.position.set(x, 0, z);
+        scene.add(this.group);
+
+        this.config = {
+          petalCount: config.petalCount || 8,
+          petalLayers: config.petalLayers || 3,
+          colorInner: config.colorInner || new THREE.Color(0xffccdd),
+          colorOuter: config.colorOuter || new THREE.Color(0xff6699),
+          maxHeight: config.maxHeight || 4,
+          delay: config.delay || 0,
+          petalLength: config.petalLength || 1.2,
+          ...config
+        };
+
+        this.growth = 0;
+        this.bloom = 0;
+        this.materials = [];
+
+        this.createStem();
+        this.createFlowerHead();
+      }
+
+      createStem() {
+        const curve = new THREE.CatmullRomCurve3([
+          new THREE.Vector3(0, 0, 0),
+          new THREE.Vector3(0.05, 0.5, 0.02),
+          new THREE.Vector3(-0.03, 1.0, 0),
+          new THREE.Vector3(0.02, 1.5, -0.02),
+          new THREE.Vector3(0, 2.0, 0)
+        ]);
+
+        const stemGeo = new THREE.TubeGeometry(curve, 20, 0.04, 8, false);
+        const stemMat = new THREE.MeshStandardMaterial({
+          color: 0x2d5a27,
+          roughness: 0.8
+        });
+
+        this.stem = new THREE.Mesh(stemGeo, stemMat);
+        this.group.add(this.stem);
+
+        // Leaves
+        for (let i = 0; i < 2; i++) {
+          const leafGeo = new THREE.PlaneGeometry(0.4, 0.8, 4, 4);
+          const leafMat = new THREE.MeshStandardMaterial({
+            color: 0x3d7a37,
+            side: THREE.DoubleSide,
+            transparent: true,
+            opacity: 0.9
+          });
+          const leaf = new THREE.Mesh(leafGeo, leafMat);
+          leaf.position.y = 0.5 + i * 0.4;
+          leaf.rotation.y = i * Math.PI + Math.random();
+          leaf.rotation.z = -0.5;
+          this.group.add(leaf);
+        }
+      }
+
+      createFlowerHead() {
+        this.flowerHead = new THREE.Group();
+        this.group.add(this.flowerHead);
+
+        // Center sphere
+        const centerGeo = new THREE.SphereGeometry(0.15, 16, 16);
+        const centerMat = new THREE.MeshStandardMaterial({
+          color: 0xffdd44,
+          emissive: 0xffaa00,
+          emissiveIntensity: 0.3
+        });
+        this.center = new THREE.Mesh(centerGeo, centerMat);
+        this.flowerHead.add(this.center);
+
+        // Create petal layers
+        this.petals = [];
+
+        for (let layer = 0; layer < this.config.petalLayers; layer++) {
+          const count = this.config.petalCount + layer * 2;
+          const layerScale = 1 - layer * 0.15;
+
+          for (let i = 0; i < count; i++) {
+            const petal = this.createPetal(layer, i, count, layerScale);
+            this.petals.push(petal);
+            this.flowerHead.add(petal);
+          }
+        }
+      }
+
+      createPetal(layer, index, total, scale) {
+        // Petal shape
+        const shape = new THREE.Shape();
+        const w = 0.25 * scale;
+        const h = this.config.petalLength * scale;
+
+        shape.moveTo(0, 0);
+        shape.bezierCurveTo(-w, h * 0.3, -w * 0.7, h * 0.7, 0, h);
+        shape.bezierCurveTo(w * 0.7, h * 0.7, w, h * 0.3, 0, 0);
+
+        const geo = new THREE.ShapeGeometry(shape, 12);
+
+        // Lighter color for inner layers
+        const innerColor = this.config.colorInner.clone().lerp(new THREE.Color(0xffffff), layer * 0.2);
+        const outerColor = this.config.colorOuter.clone().lerp(new THREE.Color(0xffffff), layer * 0.1);
+
+        const mat = new THREE.ShaderMaterial({
+          uniforms: {
+            uTime: { value: 0 },
+            uBloom: { value: 0 },
+            uGrowth: { value: 0 },
+            uColorInner: { value: innerColor },
+            uColorOuter: { value: outerColor }
+          },
+          vertexShader: petalVertexShader,
+          fragmentShader: petalFragmentShader,
+          transparent: true,
+          side: THREE.DoubleSide,
+          depthWrite: false
+        });
+
+        this.materials.push(mat);
+
+        const petal = new THREE.Mesh(geo, mat);
+
+        // Position around center
+        const angle = (index / total) * Math.PI * 2;
+        petal.userData = {
+          angle: angle,
+          layer: layer,
+          baseRotationX: -Math.PI * 0.3 - layer * 0.15
+        };
+
+        const petalGroup = new THREE.Group();
+        petalGroup.add(petal);
+        petalGroup.rotation.y = angle;
+
+        return petalGroup;
+      }
+
+      update(globalBloom, time) {
+        // Delayed growth/bloom
+        const adjustedBloom = Math.max(0, globalBloom - this.config.delay);
+        const targetGrowth = Math.min(1, adjustedBloom * 2);
+        const targetBloom = Math.max(0, adjustedBloom - 0.2) * 1.5;
+
+        this.growth += (targetGrowth - this.growth) * 0.02;
+        this.bloom += (targetBloom - this.bloom) * 0.03;
+
+        const growth = Math.max(0.01, Math.min(1, this.growth));
+        const bloom = Math.max(0, Math.min(1, this.bloom));
+
+        // Stem
+        this.stem.scale.y = growth;
+        this.stem.scale.x = 0.5 + growth * 0.5;
+        this.stem.scale.z = 0.5 + growth * 0.5;
+
+        // Sway
+        const sway = Math.sin(time * 1.5 + this.group.position.x) * 0.03 * growth;
+        this.group.rotation.z = sway;
+
+        // Flower head
+        const headHeight = this.config.maxHeight * growth * 0.5;
+        this.flowerHead.position.y = headHeight;
+        this.flowerHead.scale.setScalar(Math.max(0.01, bloom));
+
+        // Update petals
+        this.petals.forEach((petalGroup, i) => {
+          const petal = petalGroup.children[0];
+          const data = petal.userData;
+
+          // Opening animation
+          const openAngle = data.baseRotationX + (Math.PI * 0.5 * bloom);
+          const wave = Math.sin(time * 2 + i * 0.3) * 0.05 * bloom;
+          petal.rotation.x = openAngle + wave;
+
+          // Update material uniforms
+          petal.material.uniforms.uTime.value = time;
+          petal.material.uniforms.uBloom.value = bloom;
+          petal.material.uniforms.uGrowth.value = growth;
+        });
+
+        // Center glow
+        this.center.material.emissiveIntensity = 0.2 + bloom * 0.6;
+        const pulse = 1 + Math.sin(time * 4) * 0.1 * bloom;
+        this.center.scale.setScalar(pulse);
+      }
+    }
+
+    // Create flower garden
+    const flowers = [];
+    const flowerConfigs = [
+      { x: 0, z: 0, petalCount: 8, petalLayers: 4, colorInner: new THREE.Color(0xffddee), colorOuter: new THREE.Color(0xff6699), maxHeight: 5, delay: 0, petalLength: 1.4 },
+      { x: -2.5, z: 1.5, petalCount: 6, petalLayers: 3, colorInner: new THREE.Color(0xffeeff), colorOuter: new THREE.Color(0xff88aa), maxHeight: 4, delay: 0.1, petalLength: 1.2 },
+      { x: 2.5, z: 1, petalCount: 10, petalLayers: 3, colorInner: new THREE.Color(0xffccdd), colorOuter: new THREE.Color(0xee5577), maxHeight: 4.5, delay: 0.1, petalLength: 1.3 },
+      { x: -1.5, z: -1.5, petalCount: 8, petalLayers: 3, colorInner: new THREE.Color(0xeeddff), colorOuter: new THREE.Color(0xaa66cc), maxHeight: 3.5, delay: 0.2, petalLength: 1.1 },
+      { x: 1.8, z: -1.2, petalCount: 6, petalLayers: 3, colorInner: new THREE.Color(0xffeecc), colorOuter: new THREE.Color(0xffaa66), maxHeight: 3.8, delay: 0.15, petalLength: 1.0 },
+      { x: -3.5, z: -0.5, petalCount: 8, petalLayers: 2, colorInner: new THREE.Color(0xffffff), colorOuter: new THREE.Color(0xffaacc), maxHeight: 3, delay: 0.25, petalLength: 0.9 },
+      { x: 3.5, z: -1.8, petalCount: 6, petalLayers: 2, colorInner: new THREE.Color(0xffeedd), colorOuter: new THREE.Color(0xcc4466), maxHeight: 3.2, delay: 0.3, petalLength: 0.9 },
+    ];
+
+    flowerConfigs.forEach(config => {
+      flowers.push(new ProceduralFlower(config.x, config.z, config));
+    });
+
+    // Grass particles
+    const grassCount = 5000;
+    const grassGeo = new THREE.BufferGeometry();
+    const grassPos = new Float32Array(grassCount * 3);
+    const grassCol = new Float32Array(grassCount * 3);
+
+    for (let i = 0; i < grassCount; i++) {
+      const i3 = i * 3;
+      const r = Math.random() * 15;
+      const a = Math.random() * Math.PI * 2;
+      grassPos[i3] = Math.cos(a) * r;
+      grassPos[i3 + 1] = Math.random() * 0.3;
+      grassPos[i3 + 2] = Math.sin(a) * r - 5;
+
+      const g = 0.2 + Math.random() * 0.3;
+      grassCol[i3] = g * 0.4;
+      grassCol[i3 + 1] = g;
+      grassCol[i3 + 2] = g * 0.3;
+    }
+
+    grassGeo.setAttribute('position', new THREE.BufferAttribute(grassPos, 3));
+    grassGeo.setAttribute('color', new THREE.BufferAttribute(grassCol, 3));
+
+    const grassMat = new THREE.PointsMaterial({
+      size: 0.08,
+      vertexColors: true,
+      transparent: true,
+      opacity: 0.7
+    });
+    scene.add(new THREE.Points(grassGeo, grassMat));
+
+    // Floating particles (pollen/magic)
+    const particleCount = 200;
+    const particleGeo = new THREE.BufferGeometry();
+    const particlePos = new Float32Array(particleCount * 3);
+    const particleVel = [];
+
+    for (let i = 0; i < particleCount; i++) {
+      const i3 = i * 3;
+      particlePos[i3] = (Math.random() - 0.5) * 15;
+      particlePos[i3 + 1] = Math.random() * 8;
+      particlePos[i3 + 2] = (Math.random() - 0.5) * 10;
+      particleVel.push({
+        x: (Math.random() - 0.5) * 0.01,
+        y: Math.random() * 0.02 + 0.005,
+        z: (Math.random() - 0.5) * 0.01
+      });
+    }
+
+    particleGeo.setAttribute('position', new THREE.BufferAttribute(particlePos, 3));
+
+    const particleMat = new THREE.PointsMaterial({
+      size: 0.06,
+      color: 0xffffcc,
+      transparent: true,
+      opacity: 0,
+      blending: THREE.AdditiveBlending
+    });
+
+    const particles = new THREE.Points(particleGeo, particleMat);
+    scene.add(particles);
+
+    // Animation
+    let time = 0;
+    let bloom = 0;
+
+    function animate() {
+      requestAnimationFrame(animate);
+      time += 0.016;
+
+      // Smooth distance and bloom
+      currentDistance += (targetDistance - currentDistance) * 0.05;
+      const targetBloom = 1 - Math.min(1, Math.max(0, (currentDistance - 20) / 80));
+      bloom += (targetBloom - bloom) * 0.02;
+
+      // Update flowers
+      flowers.forEach(flower => flower.update(bloom, time));
+
+      // Update ground
+      groundMat.uniforms.uTime.value = time;
+      groundMat.uniforms.uBloom.value = bloom;
+
+      // Update particles
+      const positions = particleGeo.attributes.position.array;
+      particleMat.opacity = bloom * 0.6;
+
+      for (let i = 0; i < particleCount; i++) {
+        const i3 = i * 3;
+        const vel = particleVel[i];
+
+        positions[i3] += vel.x + Math.sin(time + i) * 0.003;
+        positions[i3 + 1] += vel.y * bloom;
+        positions[i3 + 2] += vel.z;
+
+        if (positions[i3 + 1] > 10 || Math.abs(positions[i3]) > 10) {
+          positions[i3] = (Math.random() - 0.5) * 10;
+          positions[i3 + 1] = Math.random() * 2;
+          positions[i3 + 2] = (Math.random() - 0.5) * 8;
+        }
+      }
+      particleGeo.attributes.position.needsUpdate = true;
+
+      // Camera
+      camera.position.x = Math.sin(time * 0.1) * 2;
+      camera.position.y = 3 + Math.sin(time * 0.08) * 0.5 + bloom * 1.5;
+      camera.lookAt(0, 2 + bloom * 1.5, 0);
+
+      // Lighting
+      rimLight.intensity = 0.4 + bloom * 0.8;
+      groundLight.intensity = bloom * 0.5;
+
+      // Background
+      const r = 0.04 + bloom * 0.02;
+      const g = 0.03 + bloom * 0.02;
+      const b = 0.07 + bloom * 0.04;
+      renderer.setClearColor(new THREE.Color(r, g, b));
+
+      renderer.render(scene, camera);
+    }
+
+    animate();
+
+    window.addEventListener('resize', () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+  </script>
+</body>
+</html>
