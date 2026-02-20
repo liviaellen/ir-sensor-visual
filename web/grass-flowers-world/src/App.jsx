@@ -55,10 +55,11 @@ const StaticScene = memo(() => (
 ));
 
 const App = () => {
-  const [flowerCount, setFlowerCount]   = useState(6000);
   const [rotateY, setRotateY]           = useState(0);
   const flowerScaleRef                  = useRef(1.0);
   const flowerScaleLabelRef             = useRef();
+  const flowerCountRef                  = useRef(6000);
+  const flowerCountLabelRef             = useRef();
   const [bleConnected, setBleConnected] = useState(false);
   const irDisplayRef = useRef();
 
@@ -128,11 +129,15 @@ const App = () => {
       }}>
         <div style={{ marginBottom: 10 }}>
           <label style={{ display: "block", fontSize: "0.8rem", marginBottom: 5 }}>
-            Flowers: {flowerCount}
+            Flowers: <span ref={flowerCountLabelRef}>6000</span>
           </label>
           <input type="range" min="0" max="10000" step="100"
-            value={flowerCount}
-            onChange={(e) => setFlowerCount(parseInt(e.target.value))}
+            defaultValue={6000}
+            onChange={(e) => {
+              const v = parseInt(e.target.value);
+              flowerCountRef.current = v;
+              if (flowerCountLabelRef.current) flowerCountLabelRef.current.textContent = v;
+            }}
             style={{ width: "100%", cursor: "pointer" }}
           />
         </div>
@@ -211,7 +216,7 @@ const App = () => {
 
       <Canvas dpr={1.5} camera={{ position: [2, -2, 2] }}>
         <StaticScene />
-        <Grass flowerCount={flowerCount} flowerScaleRef={flowerScaleRef} />
+        <Grass flowerCountRef={flowerCountRef} flowerScaleRef={flowerScaleRef} />
         <CameraRig controlsRef={controlsRef} gyroZRef={gyroZRef} />
       </Canvas>
     </>

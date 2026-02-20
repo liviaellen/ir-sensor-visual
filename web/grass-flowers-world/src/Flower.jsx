@@ -10,7 +10,7 @@ export const Flower = forwardRef((props, ref) => {
     <group>
       <instancedMesh
         ref={ref}
-        args={[undefined, undefined, 1000]}
+        args={[undefined, undefined, 10000]}
         castShadow
         receiveShadow
         geometry={nodes._ndyj_Var10_LOD0.geometry}

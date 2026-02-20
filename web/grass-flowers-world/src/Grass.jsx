@@ -11,7 +11,9 @@ import WindLayer from "./WindLayer";
 Perlin.seed(Math.random());
 extend({ WindLayer });
 
-export function Grass({ children, strands = 60000, flowerCount = 6000, flowerScaleRef, ...props }) {
+const MAX_FLOWERS = 10000;
+
+export function Grass({ children, strands = 60000, flowerCountRef, flowerScaleRef, ...props }) {
   const meshRef = useRef(null);
   const windLayer = useRef(null);
   const flowerRef = useRef();
@@ -34,6 +36,7 @@ export function Grass({ children, strands = 60000, flowerCount = 6000, flowerSca
   const geomRef        = useRef();
   const baseMatrices   = useRef(null);   // captured once after Sampler runs
   const prevScale      = useRef(1.0);
+  const prevCount      = useRef(0);
   const _pos = new THREE.Vector3();
   const _rot = new THREE.Quaternion();
   const _scl = new THREE.Vector3();
@@ -44,19 +47,25 @@ export function Grass({ children, strands = 60000, flowerCount = 6000, flowerSca
 
     if (!flowerRef.current) return;
 
-    // Capture base matrices the first time Sampler has placed all instances
+    // Show/hide instances by changing count — no Sampler re-run
+    const newCount = Math.min(flowerCountRef?.current ?? 6000, MAX_FLOWERS);
+    flowerRef.current.count = newCount;
+    const countIncreased = newCount > prevCount.current;
+    prevCount.current = newCount;
+
+    // Capture base matrices once after Sampler has placed all instances
     if (!baseMatrices.current && flowerRef.current.count > 0) {
       baseMatrices.current = [];
-      for (let i = 0; i < flowerRef.current.count; i++) {
+      for (let i = 0; i < MAX_FLOWERS; i++) {
         const m = new THREE.Matrix4();
         flowerRef.current.getMatrixAt(i, m);
         baseMatrices.current.push(m);
       }
     }
 
-    // Only update when scale slider actually changed
+    // Update scale when slider changed OR new flowers just became visible
     const newScale = flowerScaleRef?.current ?? 1.0;
-    if (baseMatrices.current && newScale !== prevScale.current) {
+    if (baseMatrices.current && (newScale !== prevScale.current || countIncreased)) {
       prevScale.current = newScale;
       for (let i = 0; i < baseMatrices.current.length; i++) {
         baseMatrices.current[i].decompose(_pos, _rot, _scl);
@@ -121,8 +130,7 @@ export function Grass({ children, strands = 60000, flowerCount = 6000, flowerSca
           instances={meshRef}
         />
         <Sampler
-          key={`${flowerCount}`}
-          count={flowerCount}
+          count={MAX_FLOWERS}
           transform={({ position, normal, dummy: object }) => {
             object.scale.setScalar(Math.random() * 0.0075);
             object.position.copy(position);
