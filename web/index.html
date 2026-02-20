@@ -3,245 +3,423 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>IR Distance Sensor</title>
+  <title>GY-521 Sensor Dashboard</title>
   <style>
-    * {
-      margin: 0;
-      padding: 0;
-      box-sizing: border-box;
-    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
 
     body {
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
       background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
       min-height: 100vh;
+      color: white;
+      padding: 20px;
+    }
+
+    header {
+      text-align: center;
+      padding: 20px 0 10px;
+    }
+
+    header h1 { font-size: 1.6rem; opacity: 0.9; }
+    header p  { font-size: 0.85rem; opacity: 0.5; margin-top: 4px; }
+
+    .status-bar {
       display: flex;
-      flex-direction: column;
       align-items: center;
       justify-content: center;
-      color: white;
-    }
-
-    .container {
-      text-align: center;
-      padding: 40px;
-    }
-
-    h1 {
-      font-size: 2rem;
-      margin-bottom: 30px;
-      opacity: 0.9;
-    }
-
-    .distance-display {
-      font-size: 8rem;
-      font-weight: 700;
-      margin: 40px 0;
-      text-shadow: 0 0 40px rgba(0, 200, 255, 0.5);
-    }
-
-    .distance-display span {
-      font-size: 3rem;
-      opacity: 0.7;
+      gap: 12px;
+      margin: 16px 0;
     }
 
     .status {
-      font-size: 1.2rem;
-      margin-bottom: 30px;
-      padding: 10px 20px;
+      font-size: 0.95rem;
+      padding: 8px 20px;
       border-radius: 20px;
-      background: rgba(255,255,255,0.1);
+      background: rgba(255,100,100,0.25);
+      transition: background 0.3s;
     }
-
-    .status.connected {
-      background: rgba(0, 200, 100, 0.3);
-    }
-
-    .status.disconnected {
-      background: rgba(255, 100, 100, 0.3);
-    }
+    .status.connected { background: rgba(0,200,100,0.3); }
 
     button {
-      padding: 15px 40px;
-      font-size: 1.2rem;
+      padding: 8px 24px;
+      font-size: 0.95rem;
       border: none;
-      border-radius: 30px;
+      border-radius: 20px;
       cursor: pointer;
       background: linear-gradient(135deg, #00c6ff, #0072ff);
       color: white;
       font-weight: 600;
-      transition: transform 0.2s, box-shadow 0.2s;
+      transition: transform 0.15s, opacity 0.15s;
+    }
+    button:hover  { transform: scale(1.04); }
+    button:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
+
+    /* ── Grid ─────────────────────────────────────────────────────── */
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 16px;
+      max-width: 1000px;
+      margin: 0 auto;
     }
 
-    button:hover {
-      transform: scale(1.05);
-      box-shadow: 0 10px 30px rgba(0, 114, 255, 0.4);
-    }
-
-    button:disabled {
-      opacity: 0.5;
-      cursor: not-allowed;
-      transform: none;
-    }
-
-    .log {
-      margin-top: 40px;
+    .card {
+      background: rgba(255,255,255,0.06);
+      border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 16px;
       padding: 20px;
-      background: rgba(0,0,0,0.3);
-      border-radius: 10px;
-      max-width: 400px;
-      max-height: 200px;
+    }
+
+    .card-title {
+      font-size: 0.75rem;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      opacity: 0.5;
+      margin-bottom: 14px;
+    }
+
+    /* ── Big number ───────────────────────────────────────────────── */
+    .big-num {
+      font-size: 5rem;
+      font-weight: 700;
+      line-height: 1;
+      text-shadow: 0 0 40px rgba(0,200,255,0.4);
+    }
+    .big-unit { font-size: 1.8rem; opacity: 0.6; margin-left: 6px; }
+
+    /* ── Progress bar ─────────────────────────────────────────────── */
+    .bar-wrap {
+      width: 100%;
+      height: 8px;
+      background: rgba(255,255,255,0.1);
+      border-radius: 4px;
+      overflow: hidden;
+      margin-top: 12px;
+    }
+    .bar-fill {
+      height: 100%;
+      border-radius: 4px;
+      transition: width 0.35s ease;
+    }
+    .bar-blue   { background: linear-gradient(90deg,#00c6ff,#0072ff); }
+    .bar-green  { background: linear-gradient(90deg,#00e96a,#00b894); }
+    .bar-orange { background: linear-gradient(90deg,#fd9b14,#e84393); }
+
+    /* ── Axis rows ────────────────────────────────────────────────── */
+    .axis-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 10px;
+    }
+    .axis-label {
+      font-size: 0.75rem;
+      font-weight: 700;
+      width: 22px;
+      opacity: 0.7;
+    }
+    .axis-val {
+      font-size: 0.95rem;
+      font-weight: 600;
+      width: 68px;
+      text-align: right;
+      font-variant-numeric: tabular-nums;
+    }
+    .axis-bar-wrap {
+      flex: 1;
+      height: 8px;
+      background: rgba(255,255,255,0.1);
+      border-radius: 4px;
+      overflow: hidden;
+    }
+    .axis-bar-fill {
+      height: 100%;
+      border-radius: 4px;
+      transition: width 0.35s ease, margin-left 0.35s ease;
+    }
+
+    /* ── Temp card ────────────────────────────────────────────────── */
+    .temp-num {
+      font-size: 3rem;
+      font-weight: 700;
+      line-height: 1;
+    }
+
+    /* ── Log ──────────────────────────────────────────────────────── */
+    .log-card { grid-column: 1 / -1; }
+    .log {
+      max-height: 140px;
       overflow-y: auto;
       font-family: monospace;
-      font-size: 0.9rem;
-      text-align: left;
+      font-size: 0.8rem;
+      opacity: 0.7;
     }
-
     .log-entry {
-      padding: 5px 0;
-      border-bottom: 1px solid rgba(255,255,255,0.1);
+      padding: 3px 0;
+      border-bottom: 1px solid rgba(255,255,255,0.06);
     }
 
-    .bar-container {
-      width: 100%;
-      max-width: 400px;
-      height: 30px;
-      background: rgba(255,255,255,0.1);
-      border-radius: 15px;
-      overflow: hidden;
-      margin: 20px auto;
-    }
-
-    .bar {
-      height: 100%;
-      background: linear-gradient(90deg, #00c6ff, #0072ff);
-      transition: width 0.3s ease;
-      border-radius: 15px;
-    }
+    /* ── Subtitle labels ─────────────────────────────────────────── */
+    .sub { font-size: 0.75rem; opacity: 0.45; margin-top: 4px; }
   </style>
 </head>
 <body>
-  <div class="container">
-    <h1>IR Distance Sensor</h1>
 
-    <div class="status disconnected" id="status">Disconnected</div>
+  <header>
+    <h1>GY-521 MPU-6050 Dashboard</h1>
+    <p>Accelerometer · Gyroscope · IR Distance · Temperature</p>
+  </header>
 
-    <div class="distance-display">
-      <span id="distance">--</span><span> cm</span>
-    </div>
-
-    <div class="bar-container">
-      <div class="bar" id="bar" style="width: 0%"></div>
-    </div>
-
+  <div class="status-bar">
+    <div class="status" id="status">Disconnected</div>
     <button id="connectBtn" onclick="connect()">Connect BLE</button>
+  </div>
 
-    <div class="log" id="log"></div>
+  <div class="grid">
+
+    <!-- IR Distance -->
+    <div class="card">
+      <div class="card-title">IR Distance</div>
+      <div>
+        <span class="big-num" id="dist">--</span>
+        <span class="big-unit">cm</span>
+      </div>
+      <div class="bar-wrap">
+        <div class="bar-fill bar-blue" id="distBar" style="width:0%"></div>
+      </div>
+    </div>
+
+    <!-- Accelerometer -->
+    <div class="card">
+      <div class="card-title">Accelerometer — tilt &amp; movement</div>
+
+      <div class="axis-row">
+        <span class="axis-label">AX</span>
+        <span class="axis-val" id="ax">--</span>
+        <div class="axis-bar-wrap">
+          <div class="axis-bar-fill bar-blue" id="axBar" style="width:50%;margin-left:50%"></div>
+        </div>
+        <span style="font-size:0.7rem;opacity:0.4;width:50px">g</span>
+      </div>
+      <div class="axis-row">
+        <span class="axis-label">AY</span>
+        <span class="axis-val" id="ay">--</span>
+        <div class="axis-bar-wrap">
+          <div class="axis-bar-fill bar-blue" id="ayBar" style="width:50%;margin-left:50%"></div>
+        </div>
+        <span style="font-size:0.7rem;opacity:0.4;width:50px">g</span>
+      </div>
+      <div class="axis-row">
+        <span class="axis-label">AZ</span>
+        <span class="axis-val" id="az">--</span>
+        <div class="axis-bar-wrap">
+          <div class="axis-bar-fill bar-blue" id="azBar" style="width:50%;margin-left:50%"></div>
+        </div>
+        <span style="font-size:0.7rem;opacity:0.4;width:50px">g</span>
+      </div>
+
+      <div class="sub">Magnitude: <span id="accelMag">--</span> g &nbsp;(1.0 = still)</div>
+    </div>
+
+    <!-- Gyroscope / Rotation Speed -->
+    <div class="card">
+      <div class="card-title">Gyroscope — rotation speed</div>
+
+      <div class="axis-row">
+        <span class="axis-label">GX</span>
+        <span class="axis-val" id="gx">--</span>
+        <div class="axis-bar-wrap">
+          <div class="axis-bar-fill bar-orange" id="gxBar" style="width:50%;margin-left:50%"></div>
+        </div>
+        <span style="font-size:0.7rem;opacity:0.4;width:50px">°/s</span>
+      </div>
+      <div class="axis-row">
+        <span class="axis-label">GY</span>
+        <span class="axis-val" id="gy">--</span>
+        <div class="axis-bar-wrap">
+          <div class="axis-bar-fill bar-orange" id="gyBar" style="width:50%;margin-left:50%"></div>
+        </div>
+        <span style="font-size:0.7rem;opacity:0.4;width:50px">°/s</span>
+      </div>
+      <div class="axis-row">
+        <span class="axis-label">GZ</span>
+        <span class="axis-val" id="gz">--</span>
+        <div class="axis-bar-wrap">
+          <div class="axis-bar-fill bar-orange" id="gzBar" style="width:50%;margin-left:50%"></div>
+        </div>
+        <span style="font-size:0.7rem;opacity:0.4;width:50px">°/s</span>
+      </div>
+
+      <div class="sub">Total spin: <span id="gyroMag">--</span> °/s
+        &nbsp;|&nbsp; <span id="motionLabel" style="color:#fd9b14">–</span>
+      </div>
+    </div>
+
+    <!-- Temperature -->
+    <div class="card">
+      <div class="card-title">Chip Temperature</div>
+      <span class="temp-num" id="temp">--</span>
+      <span style="font-size:1.4rem;opacity:0.6"> °C</span>
+      <div class="bar-wrap" style="margin-top:16px">
+        <div class="bar-fill bar-green" id="tempBar" style="width:0%"></div>
+      </div>
+      <div class="sub">MPU-6050 internal sensor (not air temp)</div>
+    </div>
+
+    <!-- Log -->
+    <div class="card log-card">
+      <div class="card-title">Raw BLE Log</div>
+      <div class="log" id="log"></div>
+    </div>
+
   </div>
 
   <script>
-    // Nordic UART Service UUIDs (used by Adafruit Bluefruit)
+    // Nordic UART Service UUIDs (Adafruit Bluefruit)
     const UART_SERVICE_UUID = '6e400001-b5a3-f393-e0a9-e50e24dcca9e';
-    const UART_TX_UUID = '6e400002-b5a3-f393-e0a9-e50e24dcca9e';
-    const UART_RX_UUID = '6e400003-b5a3-f393-e0a9-e50e24dcca9e';
+    const UART_TX_UUID      = '6e400002-b5a3-f393-e0a9-e50e24dcca9e';
+    const UART_RX_UUID      = '6e400003-b5a3-f393-e0a9-e50e24dcca9e';
 
     let device = null;
     let rxCharacteristic = null;
+    let buffer = '';   // accumulate partial BLE packets
 
-    function log(message) {
-      const logDiv = document.getElementById('log');
-      const entry = document.createElement('div');
-      entry.className = 'log-entry';
-      entry.textContent = `${new Date().toLocaleTimeString()}: ${message}`;
-      logDiv.insertBefore(entry, logDiv.firstChild);
-
-      // Keep only last 20 entries
-      while (logDiv.children.length > 20) {
-        logDiv.removeChild(logDiv.lastChild);
-      }
+    // ── Logging ──────────────────────────────────────────────────────
+    function log(msg) {
+      const el = document.getElementById('log');
+      const e  = document.createElement('div');
+      e.className = 'log-entry';
+      e.textContent = `${new Date().toLocaleTimeString()} ${msg}`;
+      el.insertBefore(e, el.firstChild);
+      while (el.children.length > 30) el.removeChild(el.lastChild);
     }
 
-    function updateStatus(connected) {
-      const status = document.getElementById('status');
-      const btn = document.getElementById('connectBtn');
+    // ── Status ───────────────────────────────────────────────────────
+    function setStatus(connected) {
+      const s = document.getElementById('status');
+      const b = document.getElementById('connectBtn');
+      s.textContent  = connected ? 'Connected' : 'Disconnected';
+      s.className    = 'status' + (connected ? ' connected' : '');
+      b.textContent  = connected ? 'Disconnect' : 'Connect BLE';
+    }
 
-      if (connected) {
-        status.textContent = 'Connected';
-        status.className = 'status connected';
-        btn.textContent = 'Disconnect';
+    // ── Axis bar helper (±range centered at 50%) ──────────────────
+    function setAxisBar(id, value, range) {
+      const el = document.getElementById(id);
+      const pct    = Math.min(Math.abs(value) / range, 1) * 50;
+      const isNeg  = value < 0;
+      if (isNeg) {
+        el.style.width      = pct + '%';
+        el.style.marginLeft = (50 - pct) + '%';
       } else {
-        status.textContent = 'Disconnected';
-        status.className = 'status disconnected';
-        btn.textContent = 'Connect BLE';
+        el.style.width      = pct + '%';
+        el.style.marginLeft = '50%';
       }
     }
 
-    function updateDistance(value) {
-      const distanceEl = document.getElementById('distance');
-      const bar = document.getElementById('bar');
-
-      distanceEl.textContent = value.toFixed(1);
-
-      // Map 20-150cm to 0-100%
-      const percent = Math.max(0, Math.min(100, ((150 - value) / 130) * 100));
-      bar.style.width = percent + '%';
+    // ── Parse BLE packet ─────────────────────────────────────────────
+    // Format: D:45.2,AX:0.01,AY:-0.02,AZ:0.99,GX:1.5,GY:-0.3,GZ:0.1,T:24.5
+    function parsePacket(raw) {
+      const data = {};
+      raw.split(',').forEach(part => {
+        const [key, val] = part.split(':');
+        if (key && val !== undefined) data[key.trim()] = parseFloat(val);
+      });
+      return data;
     }
 
+    function updateUI(d) {
+      // Distance
+      if (!isNaN(d.D)) {
+        document.getElementById('dist').textContent = d.D.toFixed(1);
+        const pct = Math.max(0, Math.min(100, ((150 - d.D) / 130) * 100));
+        document.getElementById('distBar').style.width = pct + '%';
+      }
+
+      // Accelerometer (±2g range)
+      if (!isNaN(d.AX)) { document.getElementById('ax').textContent = d.AX.toFixed(3); setAxisBar('axBar', d.AX, 2); }
+      if (!isNaN(d.AY)) { document.getElementById('ay').textContent = d.AY.toFixed(3); setAxisBar('ayBar', d.AY, 2); }
+      if (!isNaN(d.AZ)) { document.getElementById('az').textContent = d.AZ.toFixed(3); setAxisBar('azBar', d.AZ, 2); }
+
+      if (!isNaN(d.AX) && !isNaN(d.AY) && !isNaN(d.AZ)) {
+        const mag = Math.sqrt(d.AX**2 + d.AY**2 + d.AZ**2);
+        document.getElementById('accelMag').textContent = mag.toFixed(2);
+      }
+
+      // Gyroscope (±250°/s range)
+      if (!isNaN(d.GX)) { document.getElementById('gx').textContent = d.GX.toFixed(1); setAxisBar('gxBar', d.GX, 250); }
+      if (!isNaN(d.GY)) { document.getElementById('gy').textContent = d.GY.toFixed(1); setAxisBar('gyBar', d.GY, 250); }
+      if (!isNaN(d.GZ)) { document.getElementById('gz').textContent = d.GZ.toFixed(1); setAxisBar('gzBar', d.GZ, 250); }
+
+      if (!isNaN(d.GX) && !isNaN(d.GY) && !isNaN(d.GZ)) {
+        const mag = Math.sqrt(d.GX**2 + d.GY**2 + d.GZ**2);
+        document.getElementById('gyroMag').textContent = mag.toFixed(1);
+        const label = mag < 5 ? 'Still' : mag < 30 ? 'Slow rotation' : mag < 100 ? 'Rotating' : 'Fast spin';
+        document.getElementById('motionLabel').textContent = label;
+      }
+
+      // Temperature  (map 20–50°C → 0–100%)
+      if (!isNaN(d.T)) {
+        document.getElementById('temp').textContent = d.T.toFixed(1);
+        document.getElementById('tempBar').style.width = Math.max(0, Math.min(100, ((d.T - 20) / 30) * 100)) + '%';
+      }
+    }
+
+    // ── BLE data handler ─────────────────────────────────────────────
+    function handleData(event) {
+      const chunk = new TextDecoder().decode(event.target.value);
+      buffer += chunk;
+
+      // BLE packets may arrive split; wait for newline to process
+      const lines = buffer.split('\n');
+      buffer = lines.pop();   // keep any incomplete tail
+
+      lines.forEach(line => {
+        line = line.trim();
+        if (!line) return;
+        log(line);
+        if (line.includes('D:')) {
+          const d = parsePacket(line);
+          updateUI(d);
+        }
+      });
+    }
+
+    // ── Connect / Disconnect ─────────────────────────────────────────
     async function connect() {
       try {
         if (device && device.gatt.connected) {
           device.gatt.disconnect();
-          updateStatus(false);
+          setStatus(false);
           log('Disconnected');
           return;
         }
 
         log('Requesting BLE device...');
-
         device = await navigator.bluetooth.requestDevice({
           filters: [{ namePrefix: 'Adafruit' }],
           optionalServices: [UART_SERVICE_UUID]
         });
-
         log(`Found: ${device.name}`);
 
         device.addEventListener('gattserverdisconnected', () => {
-          updateStatus(false);
+          setStatus(false);
           log('Device disconnected');
         });
 
-        log('Connecting...');
-        const server = await device.gatt.connect();
-
-        log('Getting UART service...');
+        const server  = await device.gatt.connect();
         const service = await server.getPrimaryService(UART_SERVICE_UUID);
-
-        log('Getting RX characteristic...');
         rxCharacteristic = await service.getCharacteristic(UART_RX_UUID);
 
         await rxCharacteristic.startNotifications();
         rxCharacteristic.addEventListener('characteristicvaluechanged', handleData);
 
-        updateStatus(true);
-        log('Ready! Receiving data...');
+        setStatus(true);
+        log('Ready — receiving sensor data');
 
-      } catch (error) {
-        log(`Error: ${error.message}`);
-        console.error(error);
-      }
-    }
-
-    function handleData(event) {
-      const decoder = new TextDecoder();
-      const data = decoder.decode(event.target.value);
-
-      // Parse "D:123.4" format
-      if (data.startsWith('D:')) {
-        const value = parseFloat(data.substring(2));
-        if (!isNaN(value)) {
-          updateDistance(value);
-          log(`Distance: ${value.toFixed(1)} cm`);
-        }
+      } catch (err) {
+        log(`Error: ${err.message}`);
+        console.error(err);
       }
     }
   </script>

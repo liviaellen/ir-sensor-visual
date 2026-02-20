@@ -1,0 +1,2 @@
+"use strict";Object.defineProperty(exports,Symbol.toStringTag,{value:"Module"});require("three");const e=require("../vanilla-t_CDvKEO.cjs");require("three-custom-shader-material/vanilla");exports.Abstract=e.Abstract;exports.Color=e.Color;exports.Depth=e.Depth;exports.Displace=e.Displace;exports.Fresnel=e.Fresnel;exports.Gradient=e.Gradient;exports.LayerMaterial=e.LayerMaterial;exports.Matcap=e.Matcap;exports.Noise=e.Noise;exports.Normal=e.Normal;exports.Texture=e.Texture;
+//# sourceMappingURL=lamina.cjs.js.map
