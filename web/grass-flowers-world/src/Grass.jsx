@@ -11,7 +11,7 @@ import WindLayer from "./WindLayer";
 Perlin.seed(Math.random());
 extend({ WindLayer });
 
-export function Grass({ children, strands = 60000, flowerCount = 6000, flowerScale = 1.0, ...props }) {
+export function Grass({ children, strands = 60000, flowerCount = 6000, flowerScaleRef, ...props }) {
   const meshRef = useRef(null);
   const windLayer = useRef(null);
   const flowerRef = useRef();
@@ -32,7 +32,11 @@ export function Grass({ children, strands = 60000, flowerCount = 6000, flowerSca
   }, []);
 
   const geomRef = useRef();
-  useFrame(() => (windLayer.current.time += 0.005));
+  useFrame(() => {
+    windLayer.current.time += 0.005;
+    if (flowerScaleRef?.current && flowerRef.current)
+      flowerRef.current.scale.setScalar(flowerScaleRef.current);
+  });
   return (
     <>
       <BlobGeometry ref={geomRef} />
@@ -88,10 +92,10 @@ export function Grass({ children, strands = 60000, flowerCount = 6000, flowerSca
           instances={meshRef}
         />
         <Sampler
-          key={`${flowerCount}-${flowerScale}`}
+          key={`${flowerCount}`}
           count={flowerCount}
           transform={({ position, normal, dummy: object }) => {
-            object.scale.setScalar(Math.random() * 0.0075 * flowerScale);
+            object.scale.setScalar(Math.random() * 0.0075);
             object.position.copy(position);
             object.lookAt(normal.add(position));
             object.rotation.y += Math.random() - 0.5 * (Math.PI * 0.5);

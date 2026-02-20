@@ -6,7 +6,7 @@ import {
 } from "@react-three/drei";
 import { Canvas, useFrame } from "@react-three/fiber";
 import { MathUtils } from "three";
-import { useState, useRef } from "react";
+import { useState, useRef, memo } from "react";
 import { Butterfly } from "./Butterfly";
 import { Grass } from "./Grass";
 import { Particles } from "./Particles";
@@ -35,10 +35,30 @@ function BLERotator({ gyroZRef, controlsRef }) {
   return null;
 }
 
+// Memoized — only receives stable refs so never re-renders when sliders change
+const CameraRig = memo(({ controlsRef, gyroZRef }) => (
+  <>
+    <OrbitControls ref={controlsRef} makeDefault autoRotate autoRotateSpeed={0.8} />
+    <CameraShake maxRoll={0.2} maxPitch={0.2} maxYaw={0.2} />
+    <BLERotator gyroZRef={gyroZRef} controlsRef={controlsRef} />
+  </>
+));
+
+// Memoized — no props so never re-renders
+const StaticScene = memo(() => (
+  <>
+    <Environment preset="sunset" />
+    <Sky />
+    <Particles />
+    {rand.map((e, i) => <Butterfly key={i} {...e} />)}
+  </>
+));
+
 const App = () => {
   const [flowerCount, setFlowerCount]   = useState(6000);
-  const [flowerScale, setFlowerScale]   = useState(1.0);
   const [rotateY, setRotateY]           = useState(0);
+  const flowerScaleRef                  = useRef(1.0);
+  const flowerScaleLabelRef             = useRef();
   const [bleConnected, setBleConnected] = useState(false);
   const irDisplayRef = useRef();
 
@@ -118,11 +138,15 @@ const App = () => {
         </div>
         <div>
           <label style={{ display: "block", fontSize: "0.8rem", marginBottom: 5 }}>
-            Height: {flowerScale.toFixed(1)}x
+            Height: <span ref={flowerScaleLabelRef}>1.0</span>x
           </label>
           <input type="range" min="0.1" max="3.0" step="0.1"
-            value={flowerScale}
-            onChange={(e) => setFlowerScale(parseFloat(e.target.value))}
+            defaultValue={1.0}
+            onChange={(e) => {
+              const v = parseFloat(e.target.value);
+              flowerScaleRef.current = v;
+              if (flowerScaleLabelRef.current) flowerScaleLabelRef.current.textContent = v.toFixed(1);
+            }}
             style={{ width: "100%", cursor: "pointer" }}
           />
         </div>
@@ -186,19 +210,9 @@ const App = () => {
       </div>
 
       <Canvas dpr={1.5} camera={{ position: [2, -2, 2] }}>
-        <Environment preset="sunset" />
-
-        <Grass flowerCount={flowerCount} flowerScale={flowerScale} />
-        {rand.map((e, i) => <Butterfly key={i} {...e} />)}
-
-        <Sky />
-        <Particles />
-
-        <OrbitControls ref={controlsRef} makeDefault autoRotate autoRotateSpeed={0.8} />
-        <CameraShake maxRoll={0.2} maxPitch={0.2} maxYaw={0.2} />
-
-        {/* BLE → globe spin */}
-        <BLERotator gyroZRef={gyroZRef} controlsRef={controlsRef} />
+        <StaticScene />
+        <Grass flowerCount={flowerCount} flowerScaleRef={flowerScaleRef} />
+        <CameraRig controlsRef={controlsRef} gyroZRef={gyroZRef} />
       </Canvas>
     </>
   );
