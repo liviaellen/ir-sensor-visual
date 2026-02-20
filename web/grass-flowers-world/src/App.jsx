@@ -24,6 +24,26 @@ const rand = new Array(15).fill(0).map(() => ({
   scale: MathUtils.randFloat(0.5, 1),
 }));
 
+// Smooth ease-in-out: 1x ↔ 2.1x driven by IR distance thresholds
+function FlowerAnimator({ animRef, flowerScaleRef, flowerStateRef }) {
+  useFrame(() => {
+    const anim = animRef.current;
+    if (!anim.running) return;
+
+    const t01 = Math.min((performance.now() - anim.startTime) / 2000, 1);
+    const t   = t01 < 0.5 ? 2 * t01 * t01 : -1 + (4 - 2 * t01) * t01; // ease-in-out
+
+    flowerScaleRef.current = anim.from + (anim.to - anim.from) * t;
+
+    if (t01 >= 1) {
+      flowerScaleRef.current  = anim.to;
+      anim.running            = false;
+      flowerStateRef.current  = anim.to >= 2.1 ? 'high' : 'low';
+    }
+  });
+  return null;
+}
+
 // Reads gyroZ ref every frame and spins the camera azimuth accordingly
 function BLERotator({ gyroZRef, controlsRef }) {
   useFrame((_, dt) => {
@@ -58,8 +78,10 @@ const App = () => {
   const [rotateY, setRotateY]           = useState(0);
   const flowerScaleRef                  = useRef(1.0);
   const flowerScaleLabelRef             = useRef();
-  const flowerCountRef                  = useRef(6000);
+  const flowerCountRef                  = useRef(1500);
   const flowerCountLabelRef             = useRef();
+  const animRef                         = useRef({ from: 1, to: 1, startTime: 0, running: false });
+  const flowerStateRef                  = useRef('low'); // 'low'=1x | 'high'=2.1x | animating via animRef
   const [bleConnected, setBleConnected] = useState(false);
   const irDisplayRef = useRef();
 
@@ -87,7 +109,21 @@ const App = () => {
       if (!line.includes("GZ:")) return;
       const d = parsePacket(line);
       if (!isNaN(d.GZ)) gyroZRef.current = d.GZ;
-      if (!isNaN(d.D) && irDisplayRef.current) irDisplayRef.current.textContent = d.D.toFixed(1);
+
+      if (!isNaN(d.D)) {
+        if (irDisplayRef.current) irDisplayRef.current.textContent = d.D.toFixed(1);
+
+        const state = flowerStateRef.current;
+        if (d.D <= 10 && state === 'low') {
+          // Trigger grow 1x → 2.1x
+          flowerStateRef.current = 'animating';
+          animRef.current = { from: flowerScaleRef.current, to: 2.1, startTime: performance.now(), running: true };
+        } else if (d.D > 30 && state === 'high') {
+          // Trigger shrink 2.1x → 1x
+          flowerStateRef.current = 'animating';
+          animRef.current = { from: flowerScaleRef.current, to: 1.0, startTime: performance.now(), running: true };
+        }
+      }
     });
   }
 
@@ -129,10 +165,10 @@ const App = () => {
       }}>
         <div style={{ marginBottom: 10 }}>
           <label style={{ display: "block", fontSize: "0.8rem", marginBottom: 5 }}>
-            Flowers: <span ref={flowerCountLabelRef}>6000</span>
+            Flowers: <span ref={flowerCountLabelRef}>1500</span>
           </label>
           <input type="range" min="0" max="10000" step="100"
-            defaultValue={6000}
+            defaultValue={1500}
             onChange={(e) => {
               const v = parseInt(e.target.value);
               flowerCountRef.current = v;
@@ -218,6 +254,7 @@ const App = () => {
         <StaticScene />
         <Grass flowerCountRef={flowerCountRef} flowerScaleRef={flowerScaleRef} />
         <CameraRig controlsRef={controlsRef} gyroZRef={gyroZRef} />
+        <FlowerAnimator animRef={animRef} flowerScaleRef={flowerScaleRef} flowerStateRef={flowerStateRef} />
       </Canvas>
     </>
   );
