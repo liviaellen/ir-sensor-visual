@@ -31,40 +31,11 @@ export function Grass({ children, strands = 60000, flowerCount = 6000, flowerSca
     );
   }, []);
 
-  const geomRef        = useRef();
-  const baseMatrices   = useRef(null);   // captured once after Sampler runs
-  const prevScale      = useRef(1.0);
-  const _pos = new THREE.Vector3();
-  const _rot = new THREE.Quaternion();
-  const _scl = new THREE.Vector3();
-  const _mat = new THREE.Matrix4();
-
+  const geomRef = useRef();
   useFrame(() => {
     windLayer.current.time += 0.005;
-
-    if (!flowerRef.current) return;
-
-    // Capture base matrices the first time Sampler has placed all instances
-    if (!baseMatrices.current && flowerRef.current.count > 0) {
-      baseMatrices.current = [];
-      for (let i = 0; i < flowerRef.current.count; i++) {
-        const m = new THREE.Matrix4();
-        flowerRef.current.getMatrixAt(i, m);
-        baseMatrices.current.push(m);
-      }
-    }
-
-    // Only update when scale slider actually changed
-    const newScale = flowerScaleRef?.current ?? 1.0;
-    if (baseMatrices.current && newScale !== prevScale.current) {
-      prevScale.current = newScale;
-      for (let i = 0; i < baseMatrices.current.length; i++) {
-        baseMatrices.current[i].decompose(_pos, _rot, _scl);
-        _mat.compose(_pos, _rot, _scl.clone().multiplyScalar(newScale));
-        flowerRef.current.setMatrixAt(i, _mat);
-      }
-      flowerRef.current.instanceMatrix.needsUpdate = true;
-    }
+    if (flowerScaleRef?.current && flowerRef.current)
+      flowerRef.current.scale.setScalar(flowerScaleRef.current);
   });
   return (
     <>

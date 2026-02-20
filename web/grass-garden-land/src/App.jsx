@@ -260,7 +260,7 @@ const App = () => {
       <Canvas dpr={1.5} camera={{ position: [0, 3.2, 1.5], fov: 50 }}>
         <Environment preset="sunset" />
 
-        <Land width={12} depth={12} segments={128} displacement={0.6} animate={true} />
+        <Land width={12} depth={12} segments={128} displacement={0.0} animate={false} />
         <Grass flowerCount={flowerCount} flowerScale={flowerScale} bloom={bloom} distanceScale={distanceScale} />
 
         {rand.map((e, i) => (
