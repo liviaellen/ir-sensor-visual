@@ -8,6 +8,7 @@ import { Canvas } from "@react-three/fiber";
 import { MathUtils } from "three";
 import { Butterfly } from "./Butterfly";
 import { Grass } from "./Grass";
+import { Land } from "./Land";
 import { Particles } from "./Particles";
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import "./styles.css";
@@ -35,11 +36,23 @@ const App = () => {
   const [distance, setDistance] = useState(100);
   const [connected, setConnected] = useState(false);
   const [status, setStatus] = useState("Press Connect or use ↑↓ keys");
+  const [sensorValue, setSensorValue] = useState(null);
+  const [sensorMin, setSensorMin] = useState(20);
+  const [sensorMax, setSensorMax] = useState(100);
+  const [smoothingEnabled, setSmoothingEnabled] = useState(true);
+  const [smoothingRate, setSmoothingRate] = useState(0.14);
+  const [sensorSteps, setSensorSteps] = useState(5);
   const [flowerCount, setFlowerCount] = useState(6000);
   const [flowerScale, setFlowerScale] = useState(1.0);
   const [distanceScale, setDistanceScale] = useState(0.3);
   const targetDistanceRef = useRef(100);
   const distanceScaleRef = useRef(0.3);
+  const targetFlowerScaleRef = useRef(flowerScale);
+  const sensorRawRef = useRef(null);
+  const latestSensorCmRef = useRef(null);
+  const connectedRef = useRef(connected);
+  const lastSensorUIRef = useRef(0);
+  const lastBucketRef = useRef(null);
 
   const connectBLE = useCallback(async () => {
     try {
@@ -58,7 +71,17 @@ const App = () => {
           const value = parseFloat(data.substring(2));
           if (!isNaN(value) && isFinite(value)) {
             const d = Math.max(20, Math.min(150, value));
-            targetDistanceRef.current = d;
+            // Do NOT update targetDistanceRef here — we don't want sensor to drive movement.
+            // Instead, use the sensor to control flower height only.
+            setSensorValue(d);
+            // store latest raw cm reading; mapping will be sampled every 2s
+            latestSensorCmRef.current = d;
+            // update UI at most every 150ms or when integer value changes
+            const now = Date.now();
+            if (now - lastSensorUIRef.current > 150 || Math.abs((sensorValue||0) - d) >= 1) {
+              lastSensorUIRef.current = now;
+              setSensorValue(d);
+            }
           }
         }
       });
@@ -68,6 +91,10 @@ const App = () => {
       setStatus(err.message);
     }
   }, []);
+
+  useEffect(() => {
+    connectedRef.current = connected;
+  }, [connected]);
 
   // Smooth distance animation + distanceScale animation
   useEffect(() => {
@@ -91,29 +118,53 @@ const App = () => {
         return next;
       });
 
+      // Smoothly lerp flowerScale toward the smoothed sensor target when connected.
+      setFlowerScale((prev) => {
+        if (!connectedRef.current || sensorRawRef.current == null) return prev; // keep slider/default when disconnected
+        const rawTarget = sensorRawRef.current;
+        // small-deadzone to avoid micro jitter
+        if (Math.abs(rawTarget - prev) < 0.01) return prev;
+        // lerp toward the raw target (this smooths noisy sensor inputs)
+        const rate = smoothingEnabled ? smoothingRate : 1.0;
+        return prev + (rawTarget - prev) * rate;
+      });
+
       frame = requestAnimationFrame(animate);
     };
     frame = requestAnimationFrame(animate);
     return () => cancelAnimationFrame(frame);
   }, []);
 
-  // Keyboard control
+  // Sample the latest sensor value every 2 seconds and map into discrete ranges
   useEffect(() => {
-    const handler = (e) => {
-      if (e.key === "ArrowUp")
-        targetDistanceRef.current = Math.max(
-          20,
-          targetDistanceRef.current - 5
-        );
-      if (e.key === "ArrowDown")
-        targetDistanceRef.current = Math.min(
-          150,
-          targetDistanceRef.current + 5
-        );
-    };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, []);
+    const id = setInterval(() => {
+      if (!connectedRef.current) return;
+      const d = latestSensorCmRef.current;
+      if (d == null) return;
+      const minD = Math.min(sensorMin, sensorMax);
+      const maxD = Math.max(sensorMin, sensorMax);
+      const minScale = 2.7; // at minD
+      const maxScale = 1.0; // at or above maxD
+      const steps = Math.max(2, Math.round(sensorSteps));
+      let level;
+      if (d >= maxD) level = steps - 1;
+      else if (d <= minD) level = 0;
+      else {
+        const t = (d - minD) / (maxD - minD);
+        level = Math.round(t * (steps - 1));
+      }
+      // If bucket unchanged, skip updating to avoid redundant changes
+      if (lastBucketRef.current === level) return;
+      lastBucketRef.current = level;
+      const qt = level / (steps - 1);
+      const mapped = minScale - qt * (minScale - maxScale);
+      sensorRawRef.current = mapped;
+      if (!smoothingEnabled) setFlowerScale(mapped);
+    }, 2000);
+    return () => clearInterval(id);
+  }, [sensorMin, sensorMax, smoothingEnabled, sensorSteps]);
+
+  // Keyboard control removed: movement will use default distance only.
 
   const bloom = Math.max(0, Math.min(1, 1 - (distance - 20) / 80));
 
@@ -139,6 +190,8 @@ const App = () => {
           {connected ? "✓ Connected" : "Connect Sensor"}
         </button>
 
+        {/* Movement controls removed — using default movement only */}
+
         <div style={{
           padding: "14px 16px", background: "rgba(0,0,0,0.4)",
           borderRadius: 15, backdropFilter: "blur(12px)",
@@ -160,6 +213,28 @@ const App = () => {
             />
           </div>
 
+          {/* Sensor mapping controls */}
+          <div style={{ marginBottom: 10 }}>
+            <label style={{ display: "block", fontSize: "0.75rem", opacity: 0.8, marginBottom: 4 }}>
+              Sensor Range (cm)
+            </label>
+            <div style={{ display: "flex", gap: 8 }}>
+              <input type="number" min="5" max="1000" value={sensorMin}
+                onChange={(e) => setSensorMin(parseFloat(e.target.value) || 20)}
+                style={{ width: 80 }} />
+              <input type="number" min="5" max="1000" value={sensorMax}
+                onChange={(e) => setSensorMax(parseFloat(e.target.value) || 100)}
+                style={{ width: 80 }} />
+            </div>
+            <div style={{ marginTop: 8, display: "flex", alignItems: "center", gap: 8 }}>
+              <label style={{ fontSize: "0.75rem", opacity: 0.8 }}>Smoothing</label>
+              <input type="checkbox" checked={smoothingEnabled} onChange={(e) => setSmoothingEnabled(e.target.checked)} />
+              <label style={{ fontSize: "0.72rem", opacity: 0.6 }}>Rate</label>
+              <input type="number" min="0.01" max="0.5" step="0.01" value={smoothingRate}
+                onChange={(e) => setSmoothingRate(parseFloat(e.target.value) || 0.06)} style={{ width: 80 }} />
+            </div>
+          </div>
+
           {/* Flower height slider */}
           <div>
             <label style={{ display: "block", fontSize: "0.75rem", opacity: 0.8, marginBottom: 4 }}>
@@ -174,11 +249,15 @@ const App = () => {
         </div>
 
         <div style={{ fontSize: "0.78rem", opacity: 0.5 }}>{status}</div>
+        <div style={{ fontSize: "0.78rem", opacity: 0.7, marginTop: 6 }}>
+          Sensor: {sensorValue === null ? "—" : `${sensorValue.toFixed(0)} cm`} {connected ? "(live)" : ""}
+        </div>
       </div>
 
-      <Canvas dpr={1.5} camera={{ position: [1, -1.25, 1] }}>
+      <Canvas dpr={1.5} camera={{ position: [0, 3.2, 1.5], fov: 50 }}>
         <Environment preset="sunset" />
 
+        <Land width={12} depth={12} segments={128} displacement={0.6} animate={true} />
         <Grass flowerCount={flowerCount} flowerScale={flowerScale} bloom={bloom} distanceScale={distanceScale} />
 
         {rand.map((e, i) => (
@@ -188,15 +267,16 @@ const App = () => {
         <Sky />
         <Particles />
 
-        {(() => {
-          const norm = Math.max(0, Math.min(1, (flowerScale - 0.1) / (3.0 - 0.1)));
-          return (
-            <>
-              <OrbitControls makeDefault autoRotate autoRotateSpeed={0.8 + bloom * 1.2} />
-              <CameraShake maxRoll={0.2} maxPitch={0.2} maxYaw={0.2} intensity={0.5 + bloom * 0.5} />
-            </>
-          );
-        })()}
+        <OrbitControls
+          makeDefault
+          target={[0, 0, 0]}
+          // small tilt only — keep near top-down
+          minPolarAngle={Math.PI / 2 - 0.18}
+          maxPolarAngle={Math.PI / 2 - 0.03}
+          enablePan={true}
+          enableRotate={false}
+        />
+        <CameraShake maxRoll={0} maxPitch={0} maxYaw={0} intensity={0} />
       </Canvas>
     </>
   );
